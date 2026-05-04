@@ -2,7 +2,7 @@ import { OrbitControls, Text } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { ArrowLeft, Dices, Play, RefreshCcw, Sparkles } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Group, MOUSE, TOUCH, Vector3 } from "three";
+import { Group, MOUSE, MeshBasicMaterial, TOUCH, Vector3 } from "three";
 
 type PlayerId = "p1" | "p2";
 
@@ -24,6 +24,8 @@ type TrailState = {
   status: "active" | "finished";
   winner?: PlayerId;
   moveSeq: number;
+  burnTileIndex?: number;
+  burnSeq: number;
 };
 
 const trailLength = 30;
@@ -85,6 +87,7 @@ function createInitialTrailState(): TrailState {
     message: "Set up the trail race",
     status: "active",
     moveSeq: 0,
+    burnSeq: 0,
   };
 }
 
@@ -107,6 +110,22 @@ function findNearestTile(tiles: TrailTile[], fromIndex: number, roll: number) {
       bestIndex = tile.index;
       bestDistance = distance;
       bestDirection = direction;
+    }
+  }
+
+  return bestIndex;
+}
+
+function findNearestForwardTile(tiles: TrailTile[], fromIndex: number, roll: number) {
+  let bestIndex: number | undefined;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const tile of tiles) {
+    if (tile.index <= fromIndex || tile.value !== roll) continue;
+    const distance = tile.index - fromIndex;
+    if (distance < bestDistance) {
+      bestIndex = tile.index;
+      bestDistance = distance;
     }
   }
 
@@ -161,6 +180,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
     setState((current) => ({
       ...current,
       lastRoll: undefined,
+      burnTileIndex: undefined,
       message: `${playerName} is rolling`,
     }));
     setIsRolling(true);
@@ -170,6 +190,8 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
         const currentIndex = current.positions[player];
         const nextIndex = findNearestTile(tiles, currentIndex, rollValue);
         const winner = nextIndex >= finishIndex ? player : undefined;
+        const burnTileIndex = nextIndex < currentIndex ? findNearestForwardTile(tiles, currentIndex, rollValue) : undefined;
+        const burnSeq = burnTileIndex === undefined ? current.burnSeq : current.burnSeq + 1;
         const direction =
           nextIndex === currentIndex ? "stays put" : nextIndex > currentIndex ? "moves forward" : "moves back";
 
@@ -181,6 +203,8 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
           currentPlayer: player === "p1" ? "p2" : "p1",
           status: winner ? "finished" : "active",
           winner,
+          burnTileIndex,
+          burnSeq,
           message:
             currentIndex > 0 && tiles[currentIndex].value === rollValue
               ? `${playerName} rolled ${rollValue} and holds this tile`
@@ -232,6 +256,8 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
             player2Index={state.positions.p2}
             finishIndex={finishIndex}
             moveSeq={state.moveSeq}
+            burnTileIndex={state.burnTileIndex}
+            burnSeq={state.burnSeq}
           />
         </div>
 
@@ -366,12 +392,16 @@ function TrailBoard3D({
   player2Index,
   finishIndex,
   moveSeq,
+  burnTileIndex,
+  burnSeq,
 }: {
   tiles: TrailTile[];
   player1Index: number;
   player2Index: number;
   finishIndex: number;
   moveSeq: number;
+  burnTileIndex?: number;
+  burnSeq: number;
 }) {
   return (
     <Canvas shadows camera={{ position: [0, 10.6, 10.8], fov: 43 }} dpr={[1, 2]}>
@@ -409,7 +439,13 @@ function TrailBoard3D({
         );
       })}
       {tiles.map((tile) => (
-        <TrailTile3D key={tile.index} tile={tile} isFinish={tile.index === finishIndex} />
+        <TrailTile3D
+          key={tile.index}
+          tile={tile}
+          isFinish={tile.index === finishIndex}
+          isBurnTarget={tile.index === burnTileIndex}
+          burnSeq={burnSeq}
+        />
       ))}
       <TrailToken3D
         tiles={tiles}
@@ -427,10 +463,12 @@ function TrailBoard3D({
       />
       <OrbitControls
         enablePan
+        enableRotate
         screenSpacePanning
         panSpeed={0.9}
-        mouseButtons={{ LEFT: MOUSE.PAN, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE }}
-        touches={{ ONE: TOUCH.PAN, TWO: TOUCH.DOLLY_ROTATE }}
+        rotateSpeed={0.65}
+        mouseButtons={{ LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN }}
+        touches={{ ONE: TOUCH.ROTATE, TWO: TOUCH.DOLLY_PAN }}
         minDistance={8.2}
         maxDistance={14.5}
         minPolarAngle={0.5}
@@ -455,7 +493,17 @@ function TrailArrow({
   );
 }
 
-function TrailTile3D({ tile, isFinish }: { tile: TrailTile; isFinish: boolean }) {
+function TrailTile3D({
+  tile,
+  isFinish,
+  isBurnTarget,
+  burnSeq,
+}: {
+  tile: TrailTile;
+  isFinish: boolean;
+  isBurnTarget: boolean;
+  burnSeq: number;
+}) {
   const [x, y, z] = toBoardPosition(tile);
   const color = isFinish
     ? "#f7c948"
@@ -466,9 +514,16 @@ function TrailTile3D({ tile, isFinish }: { tile: TrailTile; isFinish: boolean })
         : "#884f35";
   return (
     <group position={[x, y, z]}>
+      {isBurnTarget && <TrailBurnMarker key={`burn-${burnSeq}`} />}
       <mesh castShadow receiveShadow position={[0, 0.1, 0]}>
         <boxGeometry args={[0.62, isFinish ? 0.32 : 0.24, 0.62]} />
-        <meshStandardMaterial color={color} roughness={0.48} metalness={0.12} />
+        <meshStandardMaterial
+          color={isBurnTarget ? "#8f2d2a" : color}
+          emissive={isBurnTarget ? "#ff3b30" : "#000000"}
+          emissiveIntensity={isBurnTarget ? 0.62 : 0}
+          roughness={0.48}
+          metalness={0.12}
+        />
       </mesh>
       <Text
         position={[0, isFinish ? 0.33 : 0.28, 0]}
@@ -482,6 +537,52 @@ function TrailTile3D({ tile, isFinish }: { tile: TrailTile; isFinish: boolean })
       >
         {tile.index === 0 ? "S" : isFinish ? "F" : tile.value}
       </Text>
+    </group>
+  );
+}
+
+function TrailBurnMarker() {
+  const groupRef = useRef<Group>(null);
+  const coreRef = useRef<MeshBasicMaterial>(null);
+  const ringRef = useRef<MeshBasicMaterial>(null);
+  const startedAt = useRef<number>();
+
+  useFrame(({ clock }) => {
+    startedAt.current ??= clock.elapsedTime;
+    const elapsed = clock.elapsedTime - startedAt.current;
+    const pulse = 1 + Math.sin(elapsed * 8.4) * 0.1;
+    if (groupRef.current) {
+      groupRef.current.scale.setScalar(pulse);
+      groupRef.current.rotation.y = elapsed * 1.4;
+    }
+    if (coreRef.current) coreRef.current.opacity = 0.22 + Math.sin(elapsed * 7.2) * 0.08;
+    if (ringRef.current) ringRef.current.opacity = 0.86 - Math.min(0.35, elapsed * 0.08);
+  });
+
+  return (
+    <group ref={groupRef} position={[0, 0.31, 0]}>
+      <pointLight color="#ff3b30" intensity={1.35} distance={2.2} />
+      <mesh position={[0, -0.02, 0]}>
+        <cylinderGeometry args={[0.62, 0.42, 0.035, 48]} />
+        <meshBasicMaterial ref={coreRef} color="#ff2d1f" transparent opacity={0.28} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <torusGeometry args={[0.58, 0.026, 12, 64]} />
+        <meshBasicMaterial ref={ringRef} color="#ff3b30" transparent opacity={0.82} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0.58]}>
+        <torusGeometry args={[0.74, 0.012, 8, 64]} />
+        <meshBasicMaterial color="#ff8a65" transparent opacity={0.42} />
+      </mesh>
+      {[-0.42, -0.18, 0.14, 0.38].map((sparkX, index) => (
+        <mesh
+          key={sparkX}
+          position={[sparkX, 0.12 + (index % 2) * 0.12, index % 2 === 0 ? -0.4 : 0.36]}
+        >
+          <sphereGeometry args={[0.045, 12, 12]} />
+          <meshBasicMaterial color={index % 2 === 0 ? "#ff3b30" : "#ffc247"} transparent opacity={0.92} />
+        </mesh>
+      ))}
     </group>
   );
 }
