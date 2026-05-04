@@ -1,18 +1,34 @@
 import { ArrowLeft, Crown, Dices, History, Play, RefreshCcw, Sparkles, Swords } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { io, type Socket } from "socket.io-client";
 import { DiceScene } from "./DiceScene";
 import {
   GameState,
+  PlayerId,
   applyTurnRoll,
   createInitialGame,
   updatePlayerName,
 } from "./game";
 
 const storageKey = "dicerra.game.v1";
-type Route = "games" | "dice-duel";
+const socketUrl = import.meta.env.VITE_SOCKET_URL ?? "http://localhost:8201";
+const onlineResultHoldMs = 2000;
+type Route = "games" | "dice-duel" | "online-room";
+
+type PublicRoom = {
+  id: string;
+  status: "waiting" | "active" | "finished";
+  players: Partial<Record<PlayerId, { id: PlayerId; name: string; socketId?: string }>>;
+  game: GameState;
+};
 
 function readRoute(): Route {
+  if (window.location.pathname.startsWith("/dice-duel/room/")) return "online-room";
   return window.location.pathname === "/dice-duel" ? "dice-duel" : "games";
+}
+
+function readRouteRoomId() {
+  return window.location.pathname.match(/^\/dice-duel\/room\/([^/]+)/)?.[1]?.toUpperCase() ?? "";
 }
 
 function readStoredGame(): GameState {
@@ -27,26 +43,79 @@ function readStoredGame(): GameState {
 
 export function App() {
   const [route, setRoute] = useState<Route>(readRoute);
+  const [routeRoomId, setRouteRoomId] = useState(readRouteRoomId);
   const [game, setGame] = useState<GameState>(readStoredGame);
   const [rollToken, setRollToken] = useState(0);
   const [isRolling, setIsRolling] = useState(false);
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const [onlineRoom, setOnlineRoom] = useState<PublicRoom | null>(null);
+  const [onlinePlayerId, setOnlinePlayerId] = useState<PlayerId | null>(null);
+  const [onlineRollToken, setOnlineRollToken] = useState(0);
+  const [onlineRollingPlayerId, setOnlineRollingPlayerId] = useState<PlayerId | null>(null);
+  const [onlineResultRoll, setOnlineResultRoll] = useState<number | undefined>();
+  const [onlineIsRolling, setOnlineIsRolling] = useState(false);
+  const [onlineError, setOnlineError] = useState("");
+  const onlineRollingRef = useRef(false);
+  const onlineResultTimer = useRef<number | undefined>();
 
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(game));
   }, [game]);
 
   useEffect(() => {
-    const syncRoute = () => setRoute(readRoute());
+    const syncRoute = () => {
+      setRoute(readRoute());
+      setRouteRoomId(readRouteRoomId());
+    };
     window.addEventListener("popstate", syncRoute);
     return () => window.removeEventListener("popstate", syncRoute);
   }, []);
 
-  const navigate = useCallback((nextRoute: Route) => {
-    const path = nextRoute === "dice-duel" ? "/dice-duel" : "/";
+  useEffect(() => {
+    const nextSocket = io(socketUrl, { autoConnect: true });
+    setSocket(nextSocket);
+
+    nextSocket.on("room-state", (room: PublicRoom) => {
+      if (!onlineRollingRef.current) setOnlineRoom(room);
+    });
+    nextSocket.on("roll-start", ({ playerId }: { playerId: PlayerId }) => {
+      window.clearTimeout(onlineResultTimer.current);
+      onlineRollingRef.current = true;
+      setOnlineRollingPlayerId(playerId);
+      setOnlineResultRoll(undefined);
+      setOnlineIsRolling(true);
+      setOnlineRollToken((value) => value + 1);
+    });
+    nextSocket.on("roll-result", ({ roll, room }: { playerId: PlayerId; roll: number; room: PublicRoom }) => {
+      setOnlineResultRoll(roll);
+      window.clearTimeout(onlineResultTimer.current);
+      onlineResultTimer.current = window.setTimeout(() => {
+        setOnlineRoom(room);
+        setOnlineIsRolling(false);
+        setOnlineRollingPlayerId(null);
+        setOnlineResultRoll(undefined);
+        onlineRollingRef.current = false;
+      }, onlineResultHoldMs);
+    });
+
+    return () => {
+      window.clearTimeout(onlineResultTimer.current);
+      nextSocket.disconnect();
+    };
+  }, []);
+
+  const navigate = useCallback((nextRoute: Route, roomId?: string) => {
+    const path =
+      nextRoute === "dice-duel"
+        ? "/dice-duel"
+        : nextRoute === "online-room"
+          ? `/dice-duel/room/${roomId ?? ""}`
+          : "/";
     if (window.location.pathname !== path) {
       window.history.pushState(null, "", path);
     }
     setRoute(nextRoute);
+    setRouteRoomId(roomId ?? "");
   }, []);
 
   const leader = useMemo(() => {
@@ -110,6 +179,48 @@ export function App() {
     setRollToken(0);
   };
 
+  const createOnlineRoom = (playerName: string, targetScore: number) => {
+    if (!socket) {
+      setOnlineError("Online server is not connected");
+      return;
+    }
+    socket.emit(
+      "create-room",
+      { playerName, targetScore },
+      (response: { ok: boolean; error?: string; room?: PublicRoom; playerId?: PlayerId }) => {
+        if (!response.ok || !response.room || !response.playerId) {
+          setOnlineError(response.error ?? "Could not create room");
+          return;
+        }
+        setOnlineError("");
+        setOnlineRoom(response.room);
+        setOnlinePlayerId(response.playerId);
+        navigate("online-room", response.room.id);
+      },
+    );
+  };
+
+  const joinOnlineRoom = (roomId: string, playerName: string) => {
+    if (!socket) {
+      setOnlineError("Online server is not connected");
+      return;
+    }
+    socket.emit(
+      "join-room",
+      { roomId, playerName },
+      (response: { ok: boolean; error?: string; room?: PublicRoom; playerId?: PlayerId }) => {
+        if (!response.ok || !response.room || !response.playerId) {
+          setOnlineError(response.error ?? "Could not join room");
+          return;
+        }
+        setOnlineError("");
+        setOnlineRoom(response.room);
+        setOnlinePlayerId(response.playerId);
+        navigate("online-room", response.room.id);
+      },
+    );
+  };
+
   const changeMatchSettings = () => {
     setGame((current) => ({ ...current, setupComplete: false }));
     setIsRolling(false);
@@ -139,14 +250,45 @@ export function App() {
     );
   }
 
+  if (route === "online-room" && onlineRoom && onlinePlayerId) {
+    return (
+      <OnlineGame
+        room={onlineRoom}
+        playerId={onlinePlayerId}
+        rollToken={onlineRollToken}
+        rollingPlayerId={onlineRollingPlayerId}
+        resultRoll={onlineResultRoll}
+        isRolling={onlineIsRolling}
+        onBack={() => navigate("games")}
+        onRoll={() => {
+          if (!socket || onlineIsRolling) return;
+          socket.emit("roll-request", { roomId: onlineRoom.id }, (response: { ok: boolean; error?: string }) => {
+            if (!response.ok) setOnlineError(response.error ?? "Could not roll");
+          });
+        }}
+        onRestart={() => {
+          socket?.emit("restart-room", { roomId: onlineRoom.id });
+        }}
+        onRollAnimationStart={() => setOnlineIsRolling(true)}
+        onRollAnimationComplete={(roll) => {
+          socket?.emit("submit-roll", { roomId: onlineRoom.id, roll });
+        }}
+      />
+    );
+  }
+
   if (!game.setupComplete) {
     return (
       <MatchSetup
         initialPlayer1Name={game.player1Name}
         initialPlayer2Name={game.player2Name}
         initialTargetScore={game.targetScore}
+        initialRoomId={routeRoomId}
+        onlineError={onlineError}
         onBack={() => navigate("games")}
-        onStart={configureMatch}
+        onStartLocal={configureMatch}
+        onCreateOnline={createOnlineRoom}
+        onJoinOnline={joinOnlineRoom}
       />
     );
   }
@@ -231,24 +373,11 @@ export function App() {
         </div>
 
         {game.status === "finished" && (
-          <div className="winner-overlay" role="dialog" aria-label="Match winner">
-            <div className="confetti-strips" aria-hidden="true">
-              {Array.from({ length: 22 }).map((_, index) => (
-                <span key={index} />
-              ))}
-            </div>
-            <div className="winner-panel">
-              <Sparkles size={28} />
-              <span>{game.winner === "p1" ? game.player1Name : game.player2Name}</span>
-              <strong>Win</strong>
-              <button className="roll-button" type="button" onClick={reset}>
-                Reset game
-              </button>
-              <button className="ghost-button" type="button" onClick={changeMatchSettings}>
-                New setup
-              </button>
-            </div>
-          </div>
+          <WinnerOverlay
+            winnerName={game.winner === "p1" ? game.player1Name : game.player2Name}
+            onReset={reset}
+            onNewSetup={changeMatchSettings}
+          />
         )}
       </section>
 
@@ -287,22 +416,31 @@ function MatchSetup({
   initialPlayer1Name,
   initialPlayer2Name,
   initialTargetScore,
+  initialRoomId,
+  onlineError,
   onBack,
-  onStart,
+  onStartLocal,
+  onCreateOnline,
+  onJoinOnline,
 }: {
   initialPlayer1Name: string;
   initialPlayer2Name: string;
   initialTargetScore: number;
+  initialRoomId: string;
+  onlineError: string;
   onBack: () => void;
-  onStart: (player1Name: string, player2Name: string, targetScore: number) => void;
+  onStartLocal: (player1Name: string, player2Name: string, targetScore: number) => void;
+  onCreateOnline: (playerName: string, targetScore: number) => void;
+  onJoinOnline: (roomId: string, playerName: string) => void;
 }) {
   const [player1Name, setPlayer1Name] = useState(initialPlayer1Name);
   const [player2Name, setPlayer2Name] = useState(initialPlayer2Name);
+  const [roomCode, setRoomCode] = useState(initialRoomId);
   const [targetScore, setTargetScore] = useState([3, 5, 7, 11].includes(initialTargetScore) ? initialTargetScore : 7);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    onStart(player1Name, player2Name, targetScore);
+    onStartLocal(player1Name, player2Name, targetScore);
   };
 
   return (
@@ -353,8 +491,33 @@ function MatchSetup({
 
         <button className="start-button" type="submit">
           <Play size={18} fill="currentColor" />
-          Start match
+          Start local match
         </button>
+
+        <div className="online-panel">
+          <div>
+            <span className="eyebrow">online multiplayer</span>
+            <h2>Play on two devices</h2>
+          </div>
+          {onlineError && <p className="setup-error">{onlineError}</p>}
+          <div className="online-actions">
+            <button className="start-button" type="button" onClick={() => onCreateOnline(player1Name, targetScore)}>
+              Create room
+            </button>
+            <label className="setup-field room-code-field">
+              <span>Room code</span>
+              <input
+                value={roomCode}
+                maxLength={8}
+                placeholder="ABC123"
+                onChange={(event) => setRoomCode(event.target.value.toUpperCase())}
+              />
+            </label>
+            <button className="ghost-button" type="button" onClick={() => onJoinOnline(roomCode, player2Name)}>
+              Join room
+            </button>
+          </div>
+        </div>
       </form>
     </main>
   );
@@ -400,6 +563,253 @@ function GameCatalog({ onSelectDiceDuel }: { onSelectDiceDuel: () => void }) {
   );
 }
 
+function OnlineGame({
+  room,
+  playerId,
+  rollToken,
+  rollingPlayerId,
+  resultRoll,
+  isRolling,
+  onBack,
+  onRoll,
+  onRestart,
+  onRollAnimationStart,
+  onRollAnimationComplete,
+}: {
+  room: PublicRoom;
+  playerId: PlayerId;
+  rollToken: number;
+  rollingPlayerId: PlayerId | null;
+  resultRoll?: number;
+  isRolling: boolean;
+  onBack: () => void;
+  onRoll: () => void;
+  onRestart: () => void;
+  onRollAnimationStart: () => void;
+  onRollAnimationComplete: (roll: number) => void;
+}) {
+  const game = room.game;
+  const leader =
+    game.player1Score === game.player2Score
+      ? "tie"
+      : game.player1Score > game.player2Score
+        ? "p1"
+        : "p2";
+  const currentPlayerName = game.currentPlayer === "p1" ? game.player1Name : game.player2Name;
+  const lastRound = game.rounds[0];
+  const visibleRolls =
+    game.pendingPlayer1Roll !== undefined
+      ? { p1: game.pendingPlayer1Roll, p2: undefined }
+      : { p1: lastRound?.player1Roll, p2: lastRound?.player2Roll };
+  const resultText =
+    room.status === "waiting"
+      ? "Waiting for Player 2"
+      : game.status === "finished"
+        ? `${game.winner === "p1" ? game.player1Name : game.player2Name} wins the duel`
+        : isRolling
+          ? `${currentPlayerName} is rolling`
+          : game.currentPlayer === "p2" && game.pendingPlayer1Roll !== undefined
+            ? `${game.player1Name} rolled ${game.pendingPlayer1Roll}. ${game.player2Name} rolls next`
+            : game.currentPlayer === playerId
+              ? "Your turn"
+              : `${currentPlayerName}'s turn`;
+  const progress = (Math.max(game.player1Score, game.player2Score) / game.targetScore) * 100;
+  const canRoll =
+    room.status === "active" &&
+    game.status === "active" &&
+    game.currentPlayer === playerId &&
+    !isRolling;
+  const isWatchingOpponentRoll = isRolling && rollingPlayerId !== null && rollingPlayerId !== playerId;
+  const isOwnPhysicalRoll = isRolling && rollingPlayerId === playerId;
+
+  return (
+    <main className="app-shell">
+      <section className="game-surface" aria-label="Dicerra online game table">
+        <div className="topbar">
+          <div>
+            <span className="eyebrow">Dicerra</span>
+            <h1>Dice Duel</h1>
+          </div>
+          <div className="top-actions">
+            <button className="icon-button" type="button" onClick={onBack} aria-label="Back to games">
+              <ArrowLeft size={19} />
+            </button>
+            <button className="icon-button" type="button" onClick={onRestart} aria-label="Restart room">
+              <RefreshCcw size={19} />
+            </button>
+          </div>
+        </div>
+
+        <div className="score-grid">
+          <PlayerPanel
+            name={game.player1Name}
+            score={game.player1Score}
+            isActive={game.currentPlayer === "p1" || leader === "p1"}
+            isWinner={game.winner === "p1"}
+            color="warm"
+            readOnly
+          />
+          <div className="versus">
+            <Swords size={18} />
+            <span>{game.targetScore}</span>
+          </div>
+          <PlayerPanel
+            name={game.player2Name}
+            score={game.player2Score}
+            isActive={game.currentPlayer === "p2" || leader === "p2"}
+            isWinner={game.winner === "p2"}
+            color="cool"
+            readOnly
+          />
+        </div>
+
+        <div className="scene-wrap">
+          {isWatchingOpponentRoll ? (
+            <WaitingDice finalRoll={resultRoll} />
+          ) : (
+            <DiceScene
+              rollToken={isOwnPhysicalRoll ? rollToken : 0}
+              onRollStart={onRollAnimationStart}
+              onRollComplete={onRollAnimationComplete}
+            />
+          )}
+          <div className="scene-hud">
+            <span>{resultText}</span>
+            <div className="last-rolls">
+              <strong>{visibleRolls.p1 ?? "-"}</strong>
+              <strong>{visibleRolls.p2 ?? "-"}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="action-row">
+          <div className="progress-track" aria-hidden="true">
+            <span style={{ width: `${progress}%` }} />
+          </div>
+          <button className="roll-button" type="button" onClick={onRoll} disabled={!canRoll}>
+            {room.status === "waiting"
+              ? "Waiting..."
+              : game.status === "finished"
+                ? "Duel finished"
+                : isRolling
+                  ? "Rolling..."
+                  : game.currentPlayer === playerId
+                    ? "Your roll"
+                    : "Opponent turn"}
+          </button>
+        </div>
+
+        {game.status === "finished" && (
+          <WinnerOverlay
+            winnerName={game.winner === "p1" ? game.player1Name : game.player2Name}
+            onReset={onRestart}
+          />
+        )}
+      </section>
+
+      <aside className="side-panel" aria-label="Round history">
+        <div className="room-banner">
+          <strong>Room code</strong>
+          <span>{room.id}</span>
+          <em>{playerId === "p1" ? "You are Player 1" : "You are Player 2"}</em>
+        </div>
+        <div className="history-title">
+          <History size={18} />
+          <h2>Rounds</h2>
+        </div>
+        <div className="round-list">
+          {game.rounds.length === 0 ? (
+            <p className="empty">No rounds yet</p>
+          ) : (
+            game.rounds.map((round, index) => (
+              <div className="round-item" key={round.id}>
+                <span>#{game.rounds.length - index}</span>
+                <strong>
+                  {round.player1Roll} : {round.player2Roll}
+                </strong>
+                <em>
+                  {round.winner === "tie"
+                    ? "Tie"
+                    : round.winner === "p1"
+                      ? game.player1Name
+                      : game.player2Name}
+                </em>
+              </div>
+            ))
+          )}
+        </div>
+      </aside>
+    </main>
+  );
+}
+
+function WinnerOverlay({
+  winnerName,
+  onReset,
+  onNewSetup,
+}: {
+  winnerName: string;
+  onReset: () => void;
+  onNewSetup?: () => void;
+}) {
+  return (
+    <div className="winner-overlay" role="dialog" aria-label="Match winner">
+      <div className="confetti-strips" aria-hidden="true">
+        {Array.from({ length: 22 }).map((_, index) => (
+          <span key={index} />
+        ))}
+      </div>
+      <div className="winner-panel">
+        <Sparkles size={28} />
+        <span>{winnerName}</span>
+        <strong>Win</strong>
+        <button className="roll-button" type="button" onClick={onReset}>
+          Reset game
+        </button>
+        {onNewSetup && (
+          <button className="ghost-button" type="button" onClick={onNewSetup}>
+            New setup
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function WaitingDice({ finalRoll }: { finalRoll?: number }) {
+  const [visibleRoll, setVisibleRoll] = useState(1);
+
+  useEffect(() => {
+    const startedAt = performance.now();
+    const duration = finalRoll === undefined ? Number.POSITIVE_INFINITY : 720;
+    const interval = window.setInterval(() => {
+      const elapsed = performance.now() - startedAt;
+      if (elapsed >= duration) {
+        setVisibleRoll(finalRoll ?? 1);
+        window.clearInterval(interval);
+        return;
+      }
+
+      const speed = finalRoll === undefined ? 74 : Math.max(88, 190 - elapsed / 8);
+      const next = Math.floor(elapsed / speed) % 6;
+      setVisibleRoll((next % 6) + 1);
+    }, 55);
+
+    return () => window.clearInterval(interval);
+  }, [finalRoll]);
+
+  return (
+    <div className="waiting-dice-stage" aria-label="Opponent is rolling">
+      <div className={`waiting-dice value-${visibleRoll}`}>
+        {Array.from({ length: visibleRoll }).map((_, index) => (
+          <i key={index} />
+        ))}
+      </div>
+      <span>Opponent rolling</span>
+    </div>
+  );
+}
+
 function PlayerPanel({
   name,
   score,
@@ -407,13 +817,15 @@ function PlayerPanel({
   isWinner,
   color,
   onNameChange,
+  readOnly = false,
 }: {
   name: string;
   score: number;
   isActive: boolean;
   isWinner: boolean;
   color: "warm" | "cool";
-  onNameChange: (name: string) => void;
+  onNameChange?: (name: string) => void;
+  readOnly?: boolean;
 }) {
   return (
     <div className={`player-panel ${color} ${isActive || isWinner ? "active" : ""}`}>
@@ -421,7 +833,8 @@ function PlayerPanel({
         aria-label={`${name} name`}
         value={name}
         maxLength={18}
-        onChange={(event) => onNameChange(event.target.value)}
+        readOnly={readOnly}
+        onChange={(event) => onNameChange?.(event.target.value)}
       />
       <div className="score-line">
         <strong>{score}</strong>

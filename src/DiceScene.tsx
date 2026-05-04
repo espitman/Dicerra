@@ -1,14 +1,29 @@
 import { Environment, OrbitControls, RoundedBox } from "@react-three/drei";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { CuboidCollider, Physics, RapierRigidBody, RigidBody } from "@react-three/rapier";
 import { useEffect, useMemo, useRef } from "react";
-import { Euler, Quaternion } from "three";
-import { getTopFace } from "./dicePhysics";
+import { Euler, Quaternion, Vector3 } from "three";
+import { getRotationForTopFace, getTopFace } from "./dicePhysics";
 
 type DiceSceneProps = {
   rollToken: number;
+  forcedRoll?: number;
+  scriptedAnimation?: DiceRollAnimation;
   onRollStart: () => void;
   onRollComplete: (roll: number) => void;
+};
+
+export type DiceRollAnimation = {
+  id: string;
+  roll: number;
+  duration: number;
+  start: [number, number, number];
+  drift: [number, number, number];
+  axis: [number, number, number];
+  axis2: [number, number, number];
+  turns: number;
+  turns2: number;
+  wobble: number;
 };
 
 type DiceProps = {
@@ -110,10 +125,23 @@ function Dice({ bodyRef, color, accent, position }: DiceProps) {
   );
 }
 
-function Arena({ rollToken, onRollStart, onRollComplete }: DiceSceneProps) {
+function Arena({ rollToken, forcedRoll, scriptedAnimation, onRollStart, onRollComplete }: DiceSceneProps) {
   const dice = useRef<RapierRigidBody>(null);
   const rollId = useRef(0);
   const handledRollToken = useRef(0);
+  const resultRotation = useRef<{
+    startedAt: number;
+    duration: number;
+    from: Quaternion;
+    to: Quaternion;
+  } | null>(null);
+  const scriptedRoll = useRef<{
+    startedAt: number;
+    animation: DiceRollAnimation;
+    finalRotation: Quaternion;
+    spinAxis: Vector3;
+    spinAxis2: Vector3;
+  } | null>(null);
 
   const rollDice = useMemo(
     () => (body: RapierRigidBody | null, x: number) => {
@@ -150,22 +178,141 @@ function Arena({ rollToken, onRollStart, onRollComplete }: DiceSceneProps) {
     [],
   );
 
+  useFrame(() => {
+    const scripted = scriptedRoll.current;
+    if (scripted && dice.current) {
+      const { animation, finalRotation, spinAxis, spinAxis2 } = scripted;
+      const progress = Math.min((performance.now() - scripted.startedAt) / animation.duration, 1);
+      const motionEase = 1 - Math.pow(1 - progress, 2.2);
+      const groundY = 0.56;
+      const firstImpact = 0.42;
+      const secondImpact = 0.68;
+      const finalSettle = 0.86;
+      let y = groundY;
+
+      if (progress < firstImpact) {
+        const t = progress / firstImpact;
+        y = animation.start[1] * (1 - t) + groundY * t + Math.sin(Math.PI * t) * 1.22;
+      } else if (progress < secondImpact) {
+        const t = (progress - firstImpact) / (secondImpact - firstImpact);
+        y = groundY + Math.sin(Math.PI * t) * 0.42;
+      } else if (progress < finalSettle) {
+        const t = (progress - secondImpact) / (finalSettle - secondImpact);
+        y = groundY + Math.sin(Math.PI * t) * 0.15;
+      } else {
+        const t = (progress - finalSettle) / (1 - finalSettle);
+        y = groundY + Math.sin(Math.PI * 8 * t) * 0.012 * (1 - t);
+      }
+
+      const wobble = Math.sin(progress * Math.PI * 6) * animation.wobble * (1 - progress);
+      const remaining = Math.pow(1 - progress, 1.18);
+      const spin = new Quaternion().setFromAxisAngle(
+        spinAxis,
+        Math.PI * 2 * animation.turns * remaining,
+      );
+      const crossSpin = new Quaternion().setFromAxisAngle(
+        spinAxis2,
+        Math.PI * 2 * animation.turns2 * remaining,
+      );
+      const impactTumble = new Quaternion().setFromEuler(
+        new Euler(
+          Math.sin(progress * Math.PI * 5) * 0.18 * (1 - progress),
+          Math.cos(progress * Math.PI * 4) * 0.12 * (1 - progress),
+          Math.sin(progress * Math.PI * 6) * 0.16 * (1 - progress),
+        ),
+      );
+      const rotation = finalRotation.clone().multiply(spin).multiply(crossSpin).multiply(impactTumble);
+
+      dice.current.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      dice.current.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      dice.current.setTranslation(
+        {
+          x: animation.start[0] + animation.drift[0] * motionEase + wobble,
+          y,
+          z: animation.start[2] + animation.drift[2] * motionEase - wobble * 0.45,
+        },
+        true,
+      );
+      dice.current.setRotation(
+        { x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w },
+        true,
+      );
+
+      if (progress === 1) {
+        scriptedRoll.current = null;
+      }
+      return;
+    }
+
+    const animation = resultRotation.current;
+    if (!animation || !dice.current) return;
+
+    const progress = Math.min((performance.now() - animation.startedAt) / animation.duration, 1);
+    const eased = progress * progress * (3 - 2 * progress);
+    const rotation = animation.from.clone().slerp(animation.to, eased);
+    dice.current.setRotation(
+      { x: rotation.x, y: rotation.y, z: rotation.z, w: rotation.w },
+      true,
+    );
+
+    if (progress === 1) {
+      resultRotation.current = null;
+    }
+  });
+
   useEffect(() => {
     if (rollToken === 0 || handledRollToken.current === rollToken) return;
     handledRollToken.current = rollToken;
     rollId.current += 1;
     const activeRoll = rollId.current;
     onRollStart();
+
+    if (scriptedAnimation) {
+      const axis = new Vector3(...scriptedAnimation.axis).normalize();
+      const axis2 = new Vector3(...scriptedAnimation.axis2).normalize();
+      scriptedRoll.current = {
+        startedAt: performance.now(),
+        animation: scriptedAnimation,
+        finalRotation: getRotationForTopFace(scriptedAnimation.roll),
+        spinAxis: axis,
+        spinAxis2: axis2,
+      };
+
+      const scriptedTimer = window.setTimeout(() => {
+        if (activeRoll !== rollId.current) return;
+        onRollComplete(scriptedAnimation.roll);
+      }, scriptedAnimation.duration);
+
+      return () => window.clearTimeout(scriptedTimer);
+    }
+
     rollDice(dice.current, 0);
+
+    const snapTimer = window.setTimeout(() => {
+      if (activeRoll !== rollId.current || !dice.current || forcedRoll === undefined) return;
+      const currentRotation = dice.current.rotation();
+      dice.current.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      dice.current.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      resultRotation.current = {
+        startedAt: performance.now(),
+        duration: 520,
+        from: new Quaternion(currentRotation.x, currentRotation.y, currentRotation.z, currentRotation.w),
+        to: getRotationForTopFace(forcedRoll),
+      };
+    }, 2450);
 
     const resultTimer = window.setTimeout(() => {
       if (activeRoll !== rollId.current || !dice.current) return;
       const rotation = dice.current.rotation();
-      onRollComplete(getTopFace(new Quaternion(rotation.x, rotation.y, rotation.z, rotation.w)));
+      const physicalRoll = getTopFace(new Quaternion(rotation.x, rotation.y, rotation.z, rotation.w));
+      onRollComplete(forcedRoll ?? physicalRoll);
     }, 3200);
 
-    return () => window.clearTimeout(resultTimer);
-  }, [onRollComplete, onRollStart, rollDice, rollToken]);
+    return () => {
+      window.clearTimeout(snapTimer);
+      window.clearTimeout(resultTimer);
+    };
+  }, [forcedRoll, onRollComplete, onRollStart, rollDice, rollToken, scriptedAnimation]);
 
   return (
     <>

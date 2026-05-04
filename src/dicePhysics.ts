@@ -1,4 +1,4 @@
-import { Quaternion, Vector3 } from "three";
+import { Euler, Quaternion, Vector3 } from "three";
 
 type Face = {
   value: number;
@@ -27,4 +27,17 @@ export function getTopFace(rotation: Quaternion): number {
   }
 
   return bestFace.value;
+}
+
+export function getRotationForTopFace(value: number): Quaternion {
+  const rotationByValue: Record<number, Euler> = {
+    1: new Euler(0, 0, 0),
+    2: new Euler(-Math.PI / 2, 0, 0),
+    3: new Euler(0, 0, Math.PI / 2),
+    4: new Euler(0, 0, -Math.PI / 2),
+    5: new Euler(Math.PI / 2, 0, 0),
+    6: new Euler(Math.PI, 0, 0),
+  };
+
+  return new Quaternion().setFromEuler(rotationByValue[value] ?? rotationByValue[1]);
 }

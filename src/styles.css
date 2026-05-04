@@ -197,6 +197,71 @@ button:disabled {
   background: rgba(255, 255, 255, 0.08);
 }
 
+.online-panel {
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(155, 215, 255, 0.18);
+  background: rgba(155, 215, 255, 0.06);
+  display: grid;
+  gap: 14px;
+}
+
+.online-actions {
+  display: grid;
+  grid-template-columns: 1fr minmax(150px, 220px) 1fr;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.room-code-field {
+  padding: 10px;
+}
+
+.room-code-field input {
+  min-height: 46px;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.setup-error {
+  color: #ffb4a8;
+  font-weight: 850;
+}
+
+.room-banner {
+  min-height: 52px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border-radius: 8px;
+  border: 1px solid rgba(247, 201, 72, 0.22);
+  background: rgba(247, 201, 72, 0.08);
+  display: grid;
+  gap: 6px;
+  align-items: start;
+}
+
+.room-banner strong,
+.room-banner em {
+  color: #9aa4b2;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.room-banner span {
+  color: #f7c948;
+  font-size: 1.6rem;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.room-banner em {
+  overflow-wrap: anywhere;
+}
+
+.player-panel input:read-only {
+  cursor: default;
+}
+
 .catalog-header {
   min-height: 280px;
   padding: 28px;
@@ -499,6 +564,145 @@ h2 {
 
 .scene-wrap canvas {
   display: block;
+}
+
+.waiting-dice-stage {
+  width: 100%;
+  height: 100%;
+  min-height: inherit;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 18px;
+  background:
+    radial-gradient(circle at center, rgba(247, 201, 72, 0.08), transparent 35%),
+    #111318;
+}
+
+.waiting-dice-stage > span {
+  color: #f7c948;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.waiting-dice {
+  width: clamp(132px, 34vw, 220px);
+  aspect-ratio: 1;
+  padding: 24px;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #f5f0df, #cfd3d8);
+  box-shadow:
+    inset -14px -18px 0 rgba(0, 0, 0, 0.14),
+    0 26px 48px rgba(0, 0, 0, 0.34),
+    0 0 36px rgba(247, 201, 72, 0.12);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 12px;
+  animation: waitingDicePulse 520ms ease-in-out infinite alternate;
+}
+
+.waiting-dice i {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 999px;
+  background: #111318;
+  align-self: center;
+  justify-self: center;
+  box-shadow: inset 0 -3px 0 rgba(255, 255, 255, 0.08);
+}
+
+.waiting-dice.value-1 i:nth-child(1) {
+  grid-area: 2 / 2;
+}
+
+.waiting-dice.value-2 i:nth-child(1) {
+  grid-area: 1 / 1;
+}
+
+.waiting-dice.value-2 i:nth-child(2) {
+  grid-area: 3 / 3;
+}
+
+.waiting-dice.value-3 i:nth-child(1) {
+  grid-area: 1 / 1;
+}
+
+.waiting-dice.value-3 i:nth-child(2) {
+  grid-area: 2 / 2;
+}
+
+.waiting-dice.value-3 i:nth-child(3) {
+  grid-area: 3 / 3;
+}
+
+.waiting-dice.value-4 i:nth-child(1) {
+  grid-area: 1 / 1;
+}
+
+.waiting-dice.value-4 i:nth-child(2) {
+  grid-area: 1 / 3;
+}
+
+.waiting-dice.value-4 i:nth-child(3) {
+  grid-area: 3 / 1;
+}
+
+.waiting-dice.value-4 i:nth-child(4) {
+  grid-area: 3 / 3;
+}
+
+.waiting-dice.value-5 i:nth-child(1) {
+  grid-area: 1 / 1;
+}
+
+.waiting-dice.value-5 i:nth-child(2) {
+  grid-area: 1 / 3;
+}
+
+.waiting-dice.value-5 i:nth-child(3) {
+  grid-area: 2 / 2;
+}
+
+.waiting-dice.value-5 i:nth-child(4) {
+  grid-area: 3 / 1;
+}
+
+.waiting-dice.value-5 i:nth-child(5) {
+  grid-area: 3 / 3;
+}
+
+.waiting-dice.value-6 i:nth-child(1) {
+  grid-area: 1 / 1;
+}
+
+.waiting-dice.value-6 i:nth-child(2) {
+  grid-area: 2 / 1;
+}
+
+.waiting-dice.value-6 i:nth-child(3) {
+  grid-area: 3 / 1;
+}
+
+.waiting-dice.value-6 i:nth-child(4) {
+  grid-area: 1 / 3;
+}
+
+.waiting-dice.value-6 i:nth-child(5) {
+  grid-area: 2 / 3;
+}
+
+.waiting-dice.value-6 i:nth-child(6) {
+  grid-area: 3 / 3;
+}
+
+@keyframes waitingDicePulse {
+  from {
+    transform: translateY(0) scale(1);
+  }
+  to {
+    transform: translateY(-5px) scale(1.025);
+  }
 }
 
 .scene-hud {
@@ -848,8 +1052,14 @@ h2 {
   }
 
   .setup-board,
-  .round-picker {
+  .round-picker,
+  .online-actions,
+  .room-banner {
     grid-template-columns: 1fr;
+  }
+
+  .room-banner em {
+    justify-self: start;
   }
 
   .versus {
