@@ -1,4 +1,4 @@
-import { Crown, History, RefreshCcw, Swords } from "lucide-react";
+import { ArrowLeft, Crown, Dices, History, Play, RefreshCcw, Swords } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DiceScene } from "./DiceScene";
 import {
@@ -10,6 +10,11 @@ import {
 } from "./game";
 
 const storageKey = "dicerra.game.v1";
+type Route = "games" | "dice-duel";
+
+function readRoute(): Route {
+  return window.location.pathname === "/dice-duel" ? "dice-duel" : "games";
+}
 
 function readStoredGame(): GameState {
   try {
@@ -21,6 +26,7 @@ function readStoredGame(): GameState {
 }
 
 export function App() {
+  const [route, setRoute] = useState<Route>(readRoute);
   const [game, setGame] = useState<GameState>(readStoredGame);
   const [rollToken, setRollToken] = useState(0);
   const [isRolling, setIsRolling] = useState(false);
@@ -28,6 +34,20 @@ export function App() {
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(game));
   }, [game]);
+
+  useEffect(() => {
+    const syncRoute = () => setRoute(readRoute());
+    window.addEventListener("popstate", syncRoute);
+    return () => window.removeEventListener("popstate", syncRoute);
+  }, []);
+
+  const navigate = useCallback((nextRoute: Route) => {
+    const path = nextRoute === "dice-duel" ? "/dice-duel" : "/";
+    if (window.location.pathname !== path) {
+      window.history.pushState(null, "", path);
+    }
+    setRoute(nextRoute);
+  }, []);
 
   const leader = useMemo(() => {
     if (game.player1Score === game.player2Score) return "tie";
@@ -82,17 +102,31 @@ export function App() {
   const progress =
     (Math.max(game.player1Score, game.player2Score) / WINNING_SCORE) * 100;
 
+  if (route === "games") {
+    return <GameCatalog onSelectDiceDuel={() => navigate("dice-duel")} />;
+  }
+
   return (
     <main className="app-shell">
       <section className="game-surface" aria-label="Dicerra game table">
         <div className="topbar">
           <div>
-            <span className="eyebrow">3D dice arena</span>
-            <h1>Dicerra</h1>
+            <span className="eyebrow">Dicerra</span>
+            <h1>Dice Duel</h1>
           </div>
-          <button className="icon-button" type="button" onClick={reset} aria-label="Restart game">
-            <RefreshCcw size={19} />
-          </button>
+          <div className="top-actions">
+            <button
+              className="icon-button"
+              type="button"
+              onClick={() => navigate("games")}
+              aria-label="Back to games"
+            >
+              <ArrowLeft size={19} />
+            </button>
+            <button className="icon-button" type="button" onClick={reset} aria-label="Restart game">
+              <RefreshCcw size={19} />
+            </button>
+          </div>
         </div>
 
         <div className="score-grid">
@@ -179,6 +213,46 @@ export function App() {
           )}
         </div>
       </aside>
+    </main>
+  );
+}
+
+function GameCatalog({ onSelectDiceDuel }: { onSelectDiceDuel: () => void }) {
+  return (
+    <main className="catalog-shell">
+      <section className="catalog-header" aria-label="Dicerra games">
+        <div>
+          <span className="eyebrow">dice game collection</span>
+          <h1>Dicerra</h1>
+        </div>
+        <div className="catalog-rig" aria-hidden="true">
+          <span>1</span>
+          <span>6</span>
+          <span>3</span>
+        </div>
+      </section>
+
+      <section className="games-grid" aria-label="Game list">
+        <button className="game-card" type="button" onClick={onSelectDiceDuel}>
+          <span className="game-card-icon">
+            <Dices size={34} />
+          </span>
+          <span className="game-card-copy">
+            <strong>Dice Duel</strong>
+            <em>Turn-based duel with one physical die.</em>
+          </span>
+          <span className="game-card-preview" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+          <span className="game-card-action">
+            <Play size={18} fill="currentColor" />
+          </span>
+        </button>
+      </section>
     </main>
   );
 }
