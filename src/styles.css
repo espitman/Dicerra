@@ -608,9 +608,13 @@ h2 {
   display: grid;
   place-items: center;
   backdrop-filter: blur(10px);
+  overflow: hidden;
+  animation: winnerBackdrop 360ms ease-out both;
 }
 
 .winner-panel {
+  position: relative;
+  z-index: 2;
   width: min(560px, 100%);
   padding: 32px;
   border-radius: 8px;
@@ -627,6 +631,8 @@ h2 {
   gap: 14px;
   justify-items: center;
   text-align: center;
+  transform-origin: center;
+  animation: winnerPanelOpen 640ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .winner-panel svg {
@@ -635,11 +641,19 @@ h2 {
 
 .winner-panel span {
   max-width: 100%;
-  color: #f4f2ea;
+  color: transparent;
+  background: linear-gradient(90deg, #f4f2ea, #f7c948, #9bd7ff, #f4f2ea);
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
   font-size: clamp(2rem, 8vw, 4.8rem);
   font-weight: 950;
   line-height: 0.95;
   overflow-wrap: anywhere;
+  filter: drop-shadow(0 0 18px rgba(247, 201, 72, 0.36));
+  animation:
+    winnerNameShine 1800ms linear infinite,
+    winnerNamePulse 900ms ease-out 180ms both;
 }
 
 .winner-panel strong {
@@ -656,6 +670,108 @@ h2 {
 .winner-panel .roll-button,
 .winner-panel .ghost-button {
   width: min(320px, 100%);
+}
+
+.confetti-strips {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.confetti-strips span {
+  position: absolute;
+  top: -18%;
+  left: calc(var(--x) * 1%);
+  width: 10px;
+  height: 44px;
+  border-radius: 999px;
+  background: var(--c);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--c), transparent 45%);
+  transform: rotate(var(--r));
+  opacity: 0;
+  animation: confettiFall var(--d) linear var(--delay) infinite;
+}
+
+.confetti-strips span:nth-child(1) { --x: 5; --c: #f7c948; --r: 18deg; --d: 3200ms; --delay: 0ms; }
+.confetti-strips span:nth-child(2) { --x: 11; --c: #9bd7ff; --r: -28deg; --d: 3800ms; --delay: 240ms; }
+.confetti-strips span:nth-child(3) { --x: 17; --c: #ef8354; --r: 44deg; --d: 3400ms; --delay: 520ms; }
+.confetti-strips span:nth-child(4) { --x: 23; --c: #d66cff; --r: -16deg; --d: 4200ms; --delay: 80ms; }
+.confetti-strips span:nth-child(5) { --x: 30; --c: #62f3b5; --r: 30deg; --d: 3600ms; --delay: 680ms; }
+.confetti-strips span:nth-child(6) { --x: 35; --c: #f7c948; --r: -38deg; --d: 3900ms; --delay: 980ms; }
+.confetti-strips span:nth-child(7) { --x: 42; --c: #9bd7ff; --r: 22deg; --d: 3300ms; --delay: 400ms; }
+.confetti-strips span:nth-child(8) { --x: 48; --c: #ef8354; --r: -52deg; --d: 4300ms; --delay: 760ms; }
+.confetti-strips span:nth-child(9) { --x: 54; --c: #d66cff; --r: 26deg; --d: 3500ms; --delay: 120ms; }
+.confetti-strips span:nth-child(10) { --x: 60; --c: #62f3b5; --r: -22deg; --d: 4100ms; --delay: 560ms; }
+.confetti-strips span:nth-child(11) { --x: 66; --c: #f7c948; --r: 48deg; --d: 3700ms; --delay: 860ms; }
+.confetti-strips span:nth-child(12) { --x: 72; --c: #9bd7ff; --r: -14deg; --d: 3200ms; --delay: 300ms; }
+.confetti-strips span:nth-child(13) { --x: 78; --c: #ef8354; --r: 36deg; --d: 4000ms; --delay: 1040ms; }
+.confetti-strips span:nth-child(14) { --x: 84; --c: #d66cff; --r: -34deg; --d: 3500ms; --delay: 620ms; }
+.confetti-strips span:nth-child(15) { --x: 91; --c: #62f3b5; --r: 16deg; --d: 4400ms; --delay: 180ms; }
+.confetti-strips span:nth-child(16) { --x: 96; --c: #f7c948; --r: -42deg; --d: 3800ms; --delay: 720ms; }
+.confetti-strips span:nth-child(17) { --x: 8; --c: #9bd7ff; --r: 58deg; --d: 4600ms; --delay: 1200ms; }
+.confetti-strips span:nth-child(18) { --x: 27; --c: #ef8354; --r: -20deg; --d: 4300ms; --delay: 1360ms; }
+.confetti-strips span:nth-child(19) { --x: 45; --c: #d66cff; --r: 12deg; --d: 4700ms; --delay: 1120ms; }
+.confetti-strips span:nth-child(20) { --x: 64; --c: #62f3b5; --r: -48deg; --d: 4500ms; --delay: 1500ms; }
+.confetti-strips span:nth-child(21) { --x: 82; --c: #f7c948; --r: 34deg; --d: 4200ms; --delay: 1280ms; }
+.confetti-strips span:nth-child(22) { --x: 93; --c: #9bd7ff; --r: -26deg; --d: 3900ms; --delay: 1680ms; }
+
+@keyframes winnerBackdrop {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes winnerPanelOpen {
+  0% {
+    opacity: 0;
+    transform: translateY(28px) scale(0.72) rotateX(16deg);
+  }
+  62% {
+    opacity: 1;
+    transform: translateY(-6px) scale(1.04) rotateX(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotateX(0);
+  }
+}
+
+@keyframes winnerNameShine {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 240% 50%;
+  }
+}
+
+@keyframes winnerNamePulse {
+  0% {
+    transform: scale(0.86);
+  }
+  70% {
+    transform: scale(1.04);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes confettiFall {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -10vh, 0) rotate(var(--r));
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(34px, 125vh, 0) rotate(calc(var(--r) + 520deg));
+  }
 }
 
 .history-title {

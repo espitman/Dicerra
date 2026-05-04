@@ -232,6 +232,11 @@ export function App() {
 
         {game.status === "finished" && (
           <div className="winner-overlay" role="dialog" aria-label="Match winner">
+            <div className="confetti-strips" aria-hidden="true">
+              {Array.from({ length: 22 }).map((_, index) => (
+                <span key={index} />
+              ))}
+            </div>
             <div className="winner-panel">
               <Sparkles size={28} />
               <span>{game.winner === "p1" ? game.player1Name : game.player2Name}</span>
