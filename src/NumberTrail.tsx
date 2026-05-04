@@ -2,7 +2,7 @@ import { OrbitControls, Text } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { ArrowLeft, Dices, Play, RefreshCcw, Sparkles } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Group, MOUSE, MeshBasicMaterial, TOUCH, Vector3 } from "three";
+import { Group, MOUSE, TOUCH, Vector3 } from "three";
 
 type PlayerId = "p1" | "p2";
 
@@ -543,46 +543,20 @@ function TrailTile3D({
 
 function TrailBurnMarker() {
   const groupRef = useRef<Group>(null);
-  const coreRef = useRef<MeshBasicMaterial>(null);
-  const ringRef = useRef<MeshBasicMaterial>(null);
   const startedAt = useRef<number>();
 
   useFrame(({ clock }) => {
     startedAt.current ??= clock.elapsedTime;
     const elapsed = clock.elapsedTime - startedAt.current;
-    const pulse = 1 + Math.sin(elapsed * 8.4) * 0.1;
     if (groupRef.current) {
+      const pulse = 1 + Math.sin(elapsed * 7.5) * 0.08;
       groupRef.current.scale.setScalar(pulse);
-      groupRef.current.rotation.y = elapsed * 1.4;
     }
-    if (coreRef.current) coreRef.current.opacity = 0.22 + Math.sin(elapsed * 7.2) * 0.08;
-    if (ringRef.current) ringRef.current.opacity = 0.86 - Math.min(0.35, elapsed * 0.08);
   });
 
   return (
-    <group ref={groupRef} position={[0, 0.31, 0]}>
-      <pointLight color="#ff3b30" intensity={1.35} distance={2.2} />
-      <mesh position={[0, -0.02, 0]}>
-        <cylinderGeometry args={[0.62, 0.42, 0.035, 48]} />
-        <meshBasicMaterial ref={coreRef} color="#ff2d1f" transparent opacity={0.28} />
-      </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.58, 0.026, 12, 64]} />
-        <meshBasicMaterial ref={ringRef} color="#ff3b30" transparent opacity={0.82} />
-      </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0.58]}>
-        <torusGeometry args={[0.74, 0.012, 8, 64]} />
-        <meshBasicMaterial color="#ff8a65" transparent opacity={0.42} />
-      </mesh>
-      {[-0.42, -0.18, 0.14, 0.38].map((sparkX, index) => (
-        <mesh
-          key={sparkX}
-          position={[sparkX, 0.12 + (index % 2) * 0.12, index % 2 === 0 ? -0.4 : 0.36]}
-        >
-          <sphereGeometry args={[0.045, 12, 12]} />
-          <meshBasicMaterial color={index % 2 === 0 ? "#ff3b30" : "#ffc247"} transparent opacity={0.92} />
-        </mesh>
-      ))}
+    <group ref={groupRef} position={[0, 0.24, 0]}>
+      <pointLight color="#ff3b30" intensity={1.15} distance={1.6} />
     </group>
   );
 }
