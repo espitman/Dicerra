@@ -1,7 +1,7 @@
 import { OrbitControls, Text } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { ArrowLeft, Dices, Play, RefreshCcw, Sparkles } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Group, Vector3 } from "three";
 
 type PlayerId = "p1" | "p2";
@@ -26,12 +26,21 @@ type TrailState = {
   moveSeq: number;
 };
 
-const trailValues = [
-  1, 4, 2, 6, 3, 5, 1, 2, 4, 6, 2, 3, 5, 1, 6, 4, 2, 5, 3, 1, 4, 6, 5, 2,
-  3, 6, 1, 5, 4, 2,
-];
+const trailLength = 30;
+
+function createTrailValues() {
+  const values = Array.from({ length: trailLength }, (_, index) => (index % 6) + 1);
+
+  for (let index = values.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [values[index], values[swapIndex]] = [values[swapIndex], values[index]];
+  }
+
+  return values;
+}
 
 function createTrail(): TrailTile[] {
+  const trailValues = createTrailValues();
   const directions = [
     [1, 0],
     [0, 1],
@@ -84,7 +93,7 @@ function rollDie() {
 }
 
 function findNearestTile(tiles: TrailTile[], fromIndex: number, roll: number) {
-  if (tiles[fromIndex]?.value === roll) return fromIndex;
+  if (fromIndex > 0 && tiles[fromIndex]?.value === roll) return fromIndex;
 
   let bestIndex = fromIndex;
   let bestDistance = Number.POSITIVE_INFINITY;
@@ -105,11 +114,12 @@ function findNearestTile(tiles: TrailTile[], fromIndex: number, roll: number) {
 }
 
 export function NumberTrailGame({ onBack }: { onBack: () => void }) {
-  const tiles = useMemo(createTrail, []);
+  const [tiles, setTiles] = useState<TrailTile[]>(() => createTrail());
   const [state, setState] = useState<TrailState>(createInitialTrailState);
   const finishIndex = tiles.length - 1;
 
   const startGame = (player1Name: string, player2Name: string) => {
+    setTiles(createTrail());
     setState({
       ...createInitialTrailState(),
       player1Name: player1Name.trim() || "Player 1",
@@ -120,6 +130,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
   };
 
   const resetGame = () => {
+    setTiles(createTrail());
     setState((current) => ({
       ...createInitialTrailState(),
       player1Name: current.player1Name,
@@ -149,7 +160,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
       status: winner ? "finished" : "active",
       winner,
       message:
-        tiles[currentIndex].value === rollValue
+        currentIndex > 0 && tiles[currentIndex].value === rollValue
           ? `${playerName} rolled ${rollValue} and holds this tile`
           : `${playerName} rolled ${rollValue} and ${direction}`,
     }));
