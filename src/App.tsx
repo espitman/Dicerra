@@ -75,6 +75,10 @@ export function App() {
     setIsRolling(false);
   }, []);
 
+  const startRoll = useCallback(() => {
+    setIsRolling(true);
+  }, []);
+
   const progress =
     (Math.max(game.player1Score, game.player2Score) / WINNING_SCORE) * 100;
 
@@ -117,7 +121,7 @@ export function App() {
         <div className="scene-wrap">
           <DiceScene
             rollToken={rollToken}
-            onRollStart={() => setIsRolling(true)}
+            onRollStart={startRoll}
             onRollComplete={completeRoll}
           />
           <div className="scene-hud">

@@ -113,6 +113,7 @@ function Dice({ bodyRef, color, accent, position }: DiceProps) {
 function Arena({ rollToken, onRollStart, onRollComplete }: DiceSceneProps) {
   const dice = useRef<RapierRigidBody>(null);
   const rollId = useRef(0);
+  const handledRollToken = useRef(0);
 
   const rollDice = useMemo(
     () => (body: RapierRigidBody | null, x: number) => {
@@ -150,7 +151,8 @@ function Arena({ rollToken, onRollStart, onRollComplete }: DiceSceneProps) {
   );
 
   useEffect(() => {
-    if (rollToken === 0) return;
+    if (rollToken === 0 || handledRollToken.current === rollToken) return;
+    handledRollToken.current = rollToken;
     rollId.current += 1;
     const activeRoll = rollId.current;
     onRollStart();
