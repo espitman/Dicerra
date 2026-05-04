@@ -1,6 +1,6 @@
 import { OrbitControls, Text } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { ArrowLeft, Dices, Move3D, Play, RefreshCcw, Rotate3D, Sparkles } from "lucide-react";
+import { ArrowLeft, Dices, Move3D, Play, RefreshCcw, Rotate3D, Sparkles, UserRound } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Group, MOUSE, TOUCH, Vector3 } from "three";
 
@@ -25,6 +25,8 @@ type TrailState = {
   status: "active" | "finished";
   winner?: PlayerId;
   moveSeq: number;
+  landTileIndex?: number;
+  landSeq: number;
   burnTileIndex?: number;
   burnSeq: number;
 };
@@ -88,6 +90,7 @@ function createInitialTrailState(): TrailState {
     message: "Set up the trail race",
     status: "active",
     moveSeq: 0,
+    landSeq: 0,
     burnSeq: 0,
   };
 }
@@ -182,6 +185,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
     setState((current) => ({
       ...current,
       lastRoll: undefined,
+      landTileIndex: undefined,
       burnTileIndex: undefined,
       message: `${playerName} is rolling`,
     }));
@@ -202,6 +206,8 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
           lastRoll: rollValue,
           positions: { ...current.positions, [player]: nextIndex },
           moveSeq: current.moveSeq + 1,
+          landTileIndex: nextIndex,
+          landSeq: current.landSeq + 1,
           currentPlayer: player === "p1" ? "p2" : "p1",
           status: winner ? "finished" : "active",
           winner,
@@ -278,6 +284,9 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
             player2Index={state.positions.p2}
             finishIndex={finishIndex}
             moveSeq={state.moveSeq}
+            activePlayer={state.status === "active" ? state.currentPlayer : undefined}
+            landTileIndex={state.landTileIndex}
+            landSeq={state.landSeq}
             burnTileIndex={state.burnTileIndex}
             burnSeq={state.burnSeq}
             cameraMode={cameraMode}
@@ -372,7 +381,14 @@ function TrailPlayer({
 }) {
   return (
     <div className={`trail-player ${tone} ${active ? "active" : ""}`}>
-      <strong>{name}</strong>
+      <div className="trail-player-name">
+        {active && (
+          <span className="trail-turn-icon" aria-label="Current turn">
+            <UserRound size={15} />
+          </span>
+        )}
+        <strong>{name}</strong>
+      </div>
       <span>Tile {position}</span>
     </div>
   );
@@ -415,6 +431,9 @@ function TrailBoard3D({
   player2Index,
   finishIndex,
   moveSeq,
+  activePlayer,
+  landTileIndex,
+  landSeq,
   burnTileIndex,
   burnSeq,
   cameraMode,
@@ -424,6 +443,9 @@ function TrailBoard3D({
   player2Index: number;
   finishIndex: number;
   moveSeq: number;
+  activePlayer?: PlayerId;
+  landTileIndex?: number;
+  landSeq: number;
   burnTileIndex?: number;
   burnSeq: number;
   cameraMode: CameraMode;
@@ -468,6 +490,8 @@ function TrailBoard3D({
           key={tile.index}
           tile={tile}
           isFinish={tile.index === finishIndex}
+          isLandTarget={tile.index === landTileIndex}
+          landSeq={landSeq}
           isBurnTarget={tile.index === burnTileIndex}
           burnSeq={burnSeq}
         />
@@ -478,6 +502,7 @@ function TrailBoard3D({
         tone="warm"
         offset={player1Index === player2Index ? -0.18 : 0}
         moveSeq={moveSeq}
+        shouldWiggle={activePlayer === "p1"}
       />
       <TrailToken3D
         tiles={tiles}
@@ -485,6 +510,7 @@ function TrailBoard3D({
         tone="cool"
         offset={player1Index === player2Index ? 0.18 : 0}
         moveSeq={moveSeq}
+        shouldWiggle={activePlayer === "p2"}
       />
       <OrbitControls
         enablePan
@@ -528,11 +554,15 @@ function TrailArrow({
 function TrailTile3D({
   tile,
   isFinish,
+  isLandTarget,
+  landSeq,
   isBurnTarget,
   burnSeq,
 }: {
   tile: TrailTile;
   isFinish: boolean;
+  isLandTarget: boolean;
+  landSeq: number;
   isBurnTarget: boolean;
   burnSeq: number;
 }) {
@@ -546,13 +576,14 @@ function TrailTile3D({
         : "#884f35";
   return (
     <group position={[x, y, z]}>
-      {isBurnTarget && <TrailBurnMarker key={`burn-${burnSeq}`} />}
+      {isLandTarget && <TrailTileGlow key={`land-${landSeq}`} tone="land" />}
+      {isBurnTarget && <TrailTileGlow key={`burn-${burnSeq}`} tone="burn" />}
       <mesh castShadow receiveShadow position={[0, 0.1, 0]}>
         <boxGeometry args={[0.62, isFinish ? 0.32 : 0.24, 0.62]} />
         <meshStandardMaterial
-          color={isBurnTarget ? "#8f2d2a" : color}
-          emissive={isBurnTarget ? "#ff3b30" : "#000000"}
-          emissiveIntensity={isBurnTarget ? 0.62 : 0}
+          color={isBurnTarget ? "#8f2d2a" : isLandTarget ? "#237a4a" : color}
+          emissive={isBurnTarget ? "#ff3b30" : isLandTarget ? "#2dff8a" : "#000000"}
+          emissiveIntensity={isBurnTarget || isLandTarget ? 0.62 : 0}
           roughness={0.48}
           metalness={0.12}
         />
@@ -573,9 +604,10 @@ function TrailTile3D({
   );
 }
 
-function TrailBurnMarker() {
+function TrailTileGlow({ tone }: { tone: "burn" | "land" }) {
   const groupRef = useRef<Group>(null);
   const startedAt = useRef<number>();
+  const color = tone === "burn" ? "#ff3b30" : "#2dff8a";
 
   useFrame(({ clock }) => {
     startedAt.current ??= clock.elapsedTime;
@@ -588,7 +620,7 @@ function TrailBurnMarker() {
 
   return (
     <group ref={groupRef} position={[0, 0.24, 0]}>
-      <pointLight color="#ff3b30" intensity={1.15} distance={1.6} />
+      <pointLight color={color} intensity={1.15} distance={1.6} />
     </group>
   );
 }
@@ -599,12 +631,14 @@ function TrailToken3D({
   tone,
   offset,
   moveSeq,
+  shouldWiggle,
 }: {
   tiles: TrailTile[];
   index: number;
   tone: "warm" | "cool";
   offset: number;
   moveSeq: number;
+  shouldWiggle: boolean;
 }) {
   const [x, , z] = toBoardPosition(tiles[index], offset);
   const target = new Vector3(x, 0.72, z);
@@ -622,29 +656,44 @@ function TrailToken3D({
   useEffect(() => {
     const from = currentIndex.current;
     const to = index;
+    let nextPath: Vector3[] = [];
+
     if (from === to) {
-      path.current = [target.clone()];
-      return;
+      nextPath = [target.clone()];
+    } else {
+      const step = to > from ? 1 : -1;
+      for (let tileIndex = from + step; step > 0 ? tileIndex <= to : tileIndex >= to; tileIndex += step) {
+        const [tileX, , tileZ] = toBoardPosition(tiles[tileIndex], offset);
+        nextPath.push(new Vector3(tileX, 0.72, tileZ));
+      }
     }
 
-    const step = to > from ? 1 : -1;
-    const nextPath: Vector3[] = [];
-    for (let tileIndex = from + step; step > 0 ? tileIndex <= to : tileIndex >= to; tileIndex += step) {
-      const [tileX, , tileZ] = toBoardPosition(tiles[tileIndex], offset);
-      nextPath.push(new Vector3(tileX, 0.72, tileZ));
-    }
     path.current = nextPath;
     currentIndex.current = to;
   }, [index, moveSeq, offset, target, tiles]);
 
-  useFrame((_state, delta) => {
+  useFrame(({ clock }, delta) => {
     const nextTarget = path.current[0] ?? target;
     currentPosition.current.lerp(nextTarget, Math.min(1, delta * 6.4));
     if (currentPosition.current.distanceTo(nextTarget) < 0.035) {
       currentPosition.current.copy(nextTarget);
       path.current.shift();
     }
-    groupRef.current?.position.copy(currentPosition.current);
+    if (!groupRef.current) return;
+
+    if (shouldWiggle && path.current.length === 0) {
+      const wave = clock.elapsedTime * 3.2;
+      groupRef.current.position.set(
+        currentPosition.current.x + Math.sin(wave) * 0.012,
+        currentPosition.current.y + Math.sin(wave * 1.15) * 0.018,
+        currentPosition.current.z + Math.cos(wave * 0.9) * 0.009,
+      );
+      groupRef.current.rotation.set(0, 0, Math.sin(wave * 0.8) * 0.025);
+      return;
+    }
+
+    groupRef.current.position.copy(currentPosition.current);
+    groupRef.current.rotation.set(0, 0, 0);
   });
 
   return (
