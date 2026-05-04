@@ -13,6 +13,8 @@ export type GameState = {
   player2Name: string;
   player1Score: number;
   player2Score: number;
+  targetScore: number;
+  setupComplete: boolean;
   currentPlayer: PlayerId;
   pendingPlayer1Roll?: number;
   status: "active" | "finished";
@@ -22,12 +24,21 @@ export type GameState = {
 
 export const WINNING_SCORE = 7;
 
-export function createInitialGame(): GameState {
+type GameConfig = {
+  player1Name?: string;
+  player2Name?: string;
+  targetScore?: number;
+  setupComplete?: boolean;
+};
+
+export function createInitialGame(config: GameConfig = {}): GameState {
   return {
-    player1Name: "Player 1",
-    player2Name: "Player 2",
+    player1Name: config.player1Name?.trim() || "Player 1",
+    player2Name: config.player2Name?.trim() || "Player 2",
     player1Score: 0,
     player2Score: 0,
+    targetScore: config.targetScore ?? WINNING_SCORE,
+    setupComplete: config.setupComplete ?? false,
     currentPlayer: "p1",
     status: "active",
     rounds: [],
@@ -51,7 +62,7 @@ export function applyRound(
   const player1Score = state.player1Score + (winner === "p1" ? 1 : 0);
   const player2Score = state.player2Score + (winner === "p2" ? 1 : 0);
   const gameWinner =
-    player1Score >= WINNING_SCORE ? "p1" : player2Score >= WINNING_SCORE ? "p2" : undefined;
+    player1Score >= state.targetScore ? "p1" : player2Score >= state.targetScore ? "p2" : undefined;
 
   return {
     ...state,

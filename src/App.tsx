@@ -1,9 +1,8 @@
-import { ArrowLeft, Crown, Dices, History, Play, RefreshCcw, Swords } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowLeft, Crown, Dices, History, Play, RefreshCcw, Sparkles, Swords } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { DiceScene } from "./DiceScene";
 import {
   GameState,
-  WINNING_SCORE,
   applyTurnRoll,
   createInitialGame,
   updatePlayerName,
@@ -19,7 +18,8 @@ function readRoute(): Route {
 function readStoredGame(): GameState {
   try {
     const raw = localStorage.getItem(storageKey);
-    return raw ? { ...createInitialGame(), ...JSON.parse(raw) } : createInitialGame();
+    const stored = raw ? JSON.parse(raw) : {};
+    return { ...createInitialGame(), ...stored, setupComplete: false };
   } catch {
     return createInitialGame();
   }
@@ -85,7 +85,33 @@ export function App() {
   };
 
   const reset = () => {
-    setGame(createInitialGame());
+    setGame(
+      createInitialGame({
+        player1Name: game.player1Name,
+        player2Name: game.player2Name,
+        targetScore: game.targetScore,
+        setupComplete: game.setupComplete,
+      }),
+    );
+    setIsRolling(false);
+    setRollToken(0);
+  };
+
+  const configureMatch = (player1Name: string, player2Name: string, targetScore: number) => {
+    setGame(
+      createInitialGame({
+        player1Name,
+        player2Name,
+        targetScore,
+        setupComplete: true,
+      }),
+    );
+    setIsRolling(false);
+    setRollToken(0);
+  };
+
+  const changeMatchSettings = () => {
+    setGame((current) => ({ ...current, setupComplete: false }));
     setIsRolling(false);
     setRollToken(0);
   };
@@ -100,10 +126,29 @@ export function App() {
   }, []);
 
   const progress =
-    (Math.max(game.player1Score, game.player2Score) / WINNING_SCORE) * 100;
+    (Math.max(game.player1Score, game.player2Score) / game.targetScore) * 100;
 
   if (route === "games") {
-    return <GameCatalog onSelectDiceDuel={() => navigate("dice-duel")} />;
+    return (
+      <GameCatalog
+        onSelectDiceDuel={() => {
+          setGame((current) => ({ ...current, setupComplete: false }));
+          navigate("dice-duel");
+        }}
+      />
+    );
+  }
+
+  if (!game.setupComplete) {
+    return (
+      <MatchSetup
+        initialPlayer1Name={game.player1Name}
+        initialPlayer2Name={game.player2Name}
+        initialTargetScore={game.targetScore}
+        onBack={() => navigate("games")}
+        onStart={configureMatch}
+      />
+    );
   }
 
   return (
@@ -140,7 +185,7 @@ export function App() {
           />
           <div className="versus">
             <Swords size={18} />
-            <span>{WINNING_SCORE}</span>
+            <span>{game.targetScore}</span>
           </div>
           <PlayerPanel
             name={game.player2Name}
@@ -184,6 +229,22 @@ export function App() {
                 : `${currentPlayerName} roll`}
           </button>
         </div>
+
+        {game.status === "finished" && (
+          <div className="winner-overlay" role="dialog" aria-label="Match winner">
+            <div className="winner-panel">
+              <Sparkles size={28} />
+              <span>{game.winner === "p1" ? game.player1Name : game.player2Name}</span>
+              <strong>Win</strong>
+              <button className="roll-button" type="button" onClick={reset}>
+                Reset game
+              </button>
+              <button className="ghost-button" type="button" onClick={changeMatchSettings}>
+                New setup
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       <aside className="side-panel" aria-label="Round history">
@@ -213,6 +274,83 @@ export function App() {
           )}
         </div>
       </aside>
+    </main>
+  );
+}
+
+function MatchSetup({
+  initialPlayer1Name,
+  initialPlayer2Name,
+  initialTargetScore,
+  onBack,
+  onStart,
+}: {
+  initialPlayer1Name: string;
+  initialPlayer2Name: string;
+  initialTargetScore: number;
+  onBack: () => void;
+  onStart: (player1Name: string, player2Name: string, targetScore: number) => void;
+}) {
+  const [player1Name, setPlayer1Name] = useState(initialPlayer1Name);
+  const [player2Name, setPlayer2Name] = useState(initialPlayer2Name);
+  const [targetScore, setTargetScore] = useState([3, 5, 7, 11].includes(initialTargetScore) ? initialTargetScore : 7);
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    onStart(player1Name, player2Name, targetScore);
+  };
+
+  return (
+    <main className="setup-shell">
+      <form className="setup-panel" onSubmit={submit}>
+        <div className="topbar">
+          <div>
+            <span className="eyebrow">Dicerra match setup</span>
+            <h1>Dice Duel</h1>
+          </div>
+          <button className="icon-button" type="button" onClick={onBack} aria-label="Back to games">
+            <ArrowLeft size={19} />
+          </button>
+        </div>
+
+        <div className="setup-board">
+          <label className="setup-field warm">
+            <span>Player 1</span>
+            <input
+              value={player1Name}
+              maxLength={18}
+              onChange={(event) => setPlayer1Name(event.target.value)}
+            />
+          </label>
+          <label className="setup-field cool">
+            <span>Player 2</span>
+            <input
+              value={player2Name}
+              maxLength={18}
+              onChange={(event) => setPlayer2Name(event.target.value)}
+            />
+          </label>
+        </div>
+
+        <div className="round-picker" aria-label="Target score">
+          {[3, 5, 7, 11].map((rounds) => (
+            <button
+              key={rounds}
+              className={targetScore === rounds ? "selected" : ""}
+              type="button"
+              onClick={() => setTargetScore(rounds)}
+            >
+              <strong>{rounds}</strong>
+              <span>rounds</span>
+            </button>
+          ))}
+        </div>
+
+        <button className="start-button" type="submit">
+          <Play size={18} fill="currentColor" />
+          Start match
+        </button>
+      </form>
     </main>
   );
 }
