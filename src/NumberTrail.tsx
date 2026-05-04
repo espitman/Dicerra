@@ -1,10 +1,11 @@
 import { OrbitControls, Text } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { ArrowLeft, Dices, Play, RefreshCcw, Sparkles } from "lucide-react";
+import { ArrowLeft, Dices, Move3D, Play, RefreshCcw, Rotate3D, Sparkles } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Group, MOUSE, TOUCH, Vector3 } from "three";
 
 type PlayerId = "p1" | "p2";
+type CameraMode = "rotate" | "pan";
 
 type TrailTile = {
   index: number;
@@ -136,6 +137,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
   const [tiles, setTiles] = useState<TrailTile[]>(() => createTrail());
   const [state, setState] = useState<TrailState>(createInitialTrailState);
   const [isRolling, setIsRolling] = useState(false);
+  const [cameraMode, setCameraMode] = useState<CameraMode>("rotate");
   const rollTimeoutRef = useRef<number>();
   const finishIndex = tiles.length - 1;
 
@@ -250,6 +252,26 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
         </div>
 
         <div className="trail-board-wrap">
+          <div className="trail-camera-controls" aria-label="Camera controls">
+            <button
+              className={cameraMode === "rotate" ? "active" : ""}
+              type="button"
+              onClick={() => setCameraMode("rotate")}
+              aria-label="Rotate camera"
+              title="Rotate camera"
+            >
+              <Rotate3D size={17} />
+            </button>
+            <button
+              className={cameraMode === "pan" ? "active" : ""}
+              type="button"
+              onClick={() => setCameraMode("pan")}
+              aria-label="Pan camera"
+              title="Pan camera"
+            >
+              <Move3D size={17} />
+            </button>
+          </div>
           <TrailBoard3D
             tiles={tiles}
             player1Index={state.positions.p1}
@@ -258,6 +280,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
             moveSeq={state.moveSeq}
             burnTileIndex={state.burnTileIndex}
             burnSeq={state.burnSeq}
+            cameraMode={cameraMode}
           />
         </div>
 
@@ -394,6 +417,7 @@ function TrailBoard3D({
   moveSeq,
   burnTileIndex,
   burnSeq,
+  cameraMode,
 }: {
   tiles: TrailTile[];
   player1Index: number;
@@ -402,6 +426,7 @@ function TrailBoard3D({
   moveSeq: number;
   burnTileIndex?: number;
   burnSeq: number;
+  cameraMode: CameraMode;
 }) {
   return (
     <Canvas shadows camera={{ position: [0, 10.6, 10.8], fov: 43 }} dpr={[1, 2]}>
@@ -467,8 +492,15 @@ function TrailBoard3D({
         screenSpacePanning
         panSpeed={0.9}
         rotateSpeed={0.65}
-        mouseButtons={{ LEFT: MOUSE.ROTATE, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.PAN }}
-        touches={{ ONE: TOUCH.ROTATE, TWO: TOUCH.DOLLY_PAN }}
+        mouseButtons={{
+          LEFT: cameraMode === "rotate" ? MOUSE.ROTATE : MOUSE.PAN,
+          MIDDLE: MOUSE.DOLLY,
+          RIGHT: cameraMode === "rotate" ? MOUSE.PAN : MOUSE.ROTATE,
+        }}
+        touches={{
+          ONE: cameraMode === "rotate" ? TOUCH.ROTATE : TOUCH.PAN,
+          TWO: cameraMode === "rotate" ? TOUCH.DOLLY_PAN : TOUCH.DOLLY_ROTATE,
+        }}
         minDistance={8.2}
         maxDistance={14.5}
         minPolarAngle={0.5}
