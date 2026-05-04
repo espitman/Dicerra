@@ -47,12 +47,14 @@ export function App() {
   const [game, setGame] = useState<GameState>(readStoredGame);
   const [rollToken, setRollToken] = useState(0);
   const [isRolling, setIsRolling] = useState(false);
+  const [displayRolls, setDisplayRolls] = useState<{ p1?: number; p2?: number }>({});
   const [socket, setSocket] = useState<Socket | null>(null);
   const [onlineRoom, setOnlineRoom] = useState<PublicRoom | null>(null);
   const [onlinePlayerId, setOnlinePlayerId] = useState<PlayerId | null>(null);
   const [onlineRollToken, setOnlineRollToken] = useState(0);
   const [onlineRollingPlayerId, setOnlineRollingPlayerId] = useState<PlayerId | null>(null);
   const [onlineResultRoll, setOnlineResultRoll] = useState<number | undefined>();
+  const [onlineDisplayRolls, setOnlineDisplayRolls] = useState<{ p1?: number; p2?: number }>({});
   const [onlineIsRolling, setOnlineIsRolling] = useState(false);
   const [onlineError, setOnlineError] = useState("");
   const onlineRollingRef = useRef(false);
@@ -83,11 +85,17 @@ export function App() {
       onlineRollingRef.current = true;
       setOnlineRollingPlayerId(playerId);
       setOnlineResultRoll(undefined);
+      if (playerId === "p1") {
+        setOnlineDisplayRolls({});
+      }
       setOnlineIsRolling(true);
       setOnlineRollToken((value) => value + 1);
     });
-    nextSocket.on("roll-result", ({ roll, room }: { playerId: PlayerId; roll: number; room: PublicRoom }) => {
+    nextSocket.on("roll-result", ({ playerId, roll, room }: { playerId: PlayerId; roll: number; room: PublicRoom }) => {
       setOnlineResultRoll(roll);
+      setOnlineDisplayRolls((rolls) =>
+        playerId === "p1" ? { p1: roll } : { ...rolls, p2: roll },
+      );
       window.clearTimeout(onlineResultTimer.current);
       onlineResultTimer.current = window.setTimeout(() => {
         setOnlineRoom(room);
@@ -142,14 +150,13 @@ export function App() {
   }, [game, isRolling]);
 
   const currentPlayerName = game.currentPlayer === "p1" ? game.player1Name : game.player2Name;
-  const lastRound = game.rounds[0];
-  const visibleRolls =
-    game.pendingPlayer1Roll !== undefined
-      ? { p1: game.pendingPlayer1Roll, p2: undefined }
-      : { p1: lastRound?.player1Roll, p2: lastRound?.player2Roll };
+  const visibleRolls = displayRolls;
 
   const roll = () => {
     if (isRolling || game.status === "finished") return;
+    if (game.currentPlayer === "p1") {
+      setDisplayRolls({});
+    }
     setRollToken((value) => value + 1);
   };
 
@@ -162,6 +169,7 @@ export function App() {
         setupComplete: game.setupComplete,
       }),
     );
+    setDisplayRolls({});
     setIsRolling(false);
     setRollToken(0);
   };
@@ -175,6 +183,7 @@ export function App() {
         setupComplete: true,
       }),
     );
+    setDisplayRolls({});
     setIsRolling(false);
     setRollToken(0);
   };
@@ -223,12 +232,18 @@ export function App() {
 
   const changeMatchSettings = () => {
     setGame((current) => ({ ...current, setupComplete: false }));
+    setDisplayRolls({});
     setIsRolling(false);
     setRollToken(0);
   };
 
   const completeRoll = useCallback((roll: number) => {
-    setGame((current) => applyTurnRoll(current, roll));
+    setGame((current) => {
+      setDisplayRolls((rolls) =>
+        current.currentPlayer === "p1" ? { p1: roll } : { ...rolls, p2: roll },
+      );
+      return applyTurnRoll(current, roll);
+    });
     setIsRolling(false);
   }, []);
 
@@ -258,6 +273,7 @@ export function App() {
         rollToken={onlineRollToken}
         rollingPlayerId={onlineRollingPlayerId}
         resultRoll={onlineResultRoll}
+        displayRolls={onlineDisplayRolls}
         isRolling={onlineIsRolling}
         onBack={() => navigate("games")}
         onRoll={() => {
@@ -571,6 +587,7 @@ function OnlineGame({
   rollToken,
   rollingPlayerId,
   resultRoll,
+  displayRolls,
   isRolling,
   onBack,
   onRoll,
@@ -583,6 +600,7 @@ function OnlineGame({
   rollToken: number;
   rollingPlayerId: PlayerId | null;
   resultRoll?: number;
+  displayRolls: { p1?: number; p2?: number };
   isRolling: boolean;
   onBack: () => void;
   onRoll: () => void;
@@ -598,11 +616,7 @@ function OnlineGame({
         ? "p1"
         : "p2";
   const currentPlayerName = game.currentPlayer === "p1" ? game.player1Name : game.player2Name;
-  const lastRound = game.rounds[0];
-  const visibleRolls =
-    game.pendingPlayer1Roll !== undefined
-      ? { p1: game.pendingPlayer1Roll, p2: undefined }
-      : { p1: lastRound?.player1Roll, p2: lastRound?.player2Roll };
+  const visibleRolls = displayRolls;
   const resultText =
     room.status === "waiting"
       ? "Waiting for Player 2"
