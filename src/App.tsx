@@ -4,7 +4,7 @@ import { DiceScene } from "./DiceScene";
 import {
   GameState,
   WINNING_SCORE,
-  applyRound,
+  applyTurnRoll,
   createInitialGame,
   updatePlayerName,
 } from "./game";
@@ -24,7 +24,6 @@ export function App() {
   const [game, setGame] = useState<GameState>(readStoredGame);
   const [rollToken, setRollToken] = useState(0);
   const [isRolling, setIsRolling] = useState(false);
-  const [lastRoll, setLastRoll] = useState<{ p1: number; p2: number } | null>(null);
 
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(game));
@@ -39,12 +38,26 @@ export function App() {
     if (game.status === "finished") {
       return `${game.winner === "p1" ? game.player1Name : game.player2Name} wins the duel`;
     }
-    if (!lastRoll) return "Roll the dice to open the match";
-    if (lastRoll.p1 === lastRoll.p2) return `Tie at ${lastRoll.p1}. No point awarded`;
-    return lastRoll.p1 > lastRoll.p2
-      ? `${game.player1Name} wins the round`
-      : `${game.player2Name} wins the round`;
-  }, [game, lastRoll]);
+    if (isRolling) {
+      return `${game.currentPlayer === "p1" ? game.player1Name : game.player2Name} is rolling`;
+    }
+    if (game.currentPlayer === "p2" && game.pendingPlayer1Roll !== undefined) {
+      return `${game.player1Name} rolled ${game.pendingPlayer1Roll}. ${game.player2Name} rolls next`;
+    }
+    const lastRound = game.rounds[0];
+    if (!lastRound) return `${game.player1Name} opens the match`;
+    if (lastRound.winner === "tie") return `Tie at ${lastRound.player1Roll}. No point awarded`;
+    return lastRound.winner === "p1"
+      ? `${game.player1Name} won the last round`
+      : `${game.player2Name} won the last round`;
+  }, [game, isRolling]);
+
+  const currentPlayerName = game.currentPlayer === "p1" ? game.player1Name : game.player2Name;
+  const lastRound = game.rounds[0];
+  const visibleRolls =
+    game.pendingPlayer1Roll !== undefined
+      ? { p1: game.pendingPlayer1Roll, p2: undefined }
+      : { p1: lastRound?.player1Roll, p2: lastRound?.player2Roll };
 
   const roll = () => {
     if (isRolling || game.status === "finished") return;
@@ -53,14 +66,12 @@ export function App() {
 
   const reset = () => {
     setGame(createInitialGame());
-    setLastRoll(null);
     setIsRolling(false);
     setRollToken(0);
   };
 
-  const completeRoll = useCallback((p1: number, p2: number) => {
-    setLastRoll({ p1, p2 });
-    setGame((current) => applyRound(current, p1, p2));
+  const completeRoll = useCallback((roll: number) => {
+    setGame((current) => applyTurnRoll(current, roll));
     setIsRolling(false);
   }, []);
 
@@ -84,7 +95,7 @@ export function App() {
           <PlayerPanel
             name={game.player1Name}
             score={game.player1Score}
-            isLeader={leader === "p1"}
+            isActive={game.currentPlayer === "p1" || leader === "p1"}
             isWinner={game.winner === "p1"}
             color="warm"
             onNameChange={(name) => setGame((current) => updatePlayerName(current, "p1", name))}
@@ -96,7 +107,7 @@ export function App() {
           <PlayerPanel
             name={game.player2Name}
             score={game.player2Score}
-            isLeader={leader === "p2"}
+            isActive={game.currentPlayer === "p2" || leader === "p2"}
             isWinner={game.winner === "p2"}
             color="cool"
             onNameChange={(name) => setGame((current) => updatePlayerName(current, "p2", name))}
@@ -110,10 +121,10 @@ export function App() {
             onRollComplete={completeRoll}
           />
           <div className="scene-hud">
-            <span>{isRolling ? "Physics rolling" : resultText}</span>
+            <span>{resultText}</span>
             <div className="last-rolls">
-              <strong>{lastRoll?.p1 ?? "-"}</strong>
-              <strong>{lastRoll?.p2 ?? "-"}</strong>
+              <strong>{visibleRolls.p1 ?? "-"}</strong>
+              <strong>{visibleRolls.p2 ?? "-"}</strong>
             </div>
           </div>
         </div>
@@ -128,7 +139,11 @@ export function App() {
             onClick={roll}
             disabled={isRolling || game.status === "finished"}
           >
-            {game.status === "finished" ? "Duel finished" : isRolling ? "Rolling..." : "Roll dice"}
+            {game.status === "finished"
+              ? "Duel finished"
+              : isRolling
+                ? "Rolling..."
+                : `${currentPlayerName} roll`}
           </button>
         </div>
       </section>
@@ -167,20 +182,20 @@ export function App() {
 function PlayerPanel({
   name,
   score,
-  isLeader,
+  isActive,
   isWinner,
   color,
   onNameChange,
 }: {
   name: string;
   score: number;
-  isLeader: boolean;
+  isActive: boolean;
   isWinner: boolean;
   color: "warm" | "cool";
   onNameChange: (name: string) => void;
 }) {
   return (
-    <div className={`player-panel ${color} ${isLeader || isWinner ? "active" : ""}`}>
+    <div className={`player-panel ${color} ${isActive || isWinner ? "active" : ""}`}>
       <input
         aria-label={`${name} name`}
         value={name}

@@ -8,7 +8,7 @@ import { getTopFace } from "./dicePhysics";
 type DiceSceneProps = {
   rollToken: number;
   onRollStart: () => void;
-  onRollComplete: (player1Roll: number, player2Roll: number) => void;
+  onRollComplete: (roll: number) => void;
 };
 
 type DiceProps = {
@@ -111,8 +111,7 @@ function Dice({ bodyRef, color, accent, position }: DiceProps) {
 }
 
 function Arena({ rollToken, onRollStart, onRollComplete }: DiceSceneProps) {
-  const player1Dice = useRef<RapierRigidBody>(null);
-  const player2Dice = useRef<RapierRigidBody>(null);
+  const dice = useRef<RapierRigidBody>(null);
   const rollId = useRef(0);
 
   const rollDice = useMemo(
@@ -155,17 +154,12 @@ function Arena({ rollToken, onRollStart, onRollComplete }: DiceSceneProps) {
     rollId.current += 1;
     const activeRoll = rollId.current;
     onRollStart();
-    rollDice(player1Dice.current, -1.25);
-    rollDice(player2Dice.current, 1.25);
+    rollDice(dice.current, 0);
 
     const resultTimer = window.setTimeout(() => {
-      if (activeRoll !== rollId.current || !player1Dice.current || !player2Dice.current) return;
-      const p1 = player1Dice.current.rotation();
-      const p2 = player2Dice.current.rotation();
-      onRollComplete(
-        getTopFace(new Quaternion(p1.x, p1.y, p1.z, p1.w)),
-        getTopFace(new Quaternion(p2.x, p2.y, p2.z, p2.w)),
-      );
+      if (activeRoll !== rollId.current || !dice.current) return;
+      const rotation = dice.current.rotation();
+      onRollComplete(getTopFace(new Quaternion(rotation.x, rotation.y, rotation.z, rotation.w)));
     }, 3200);
 
     return () => window.clearTimeout(resultTimer);
@@ -204,8 +198,7 @@ function Arena({ rollToken, onRollStart, onRollComplete }: DiceSceneProps) {
           />
           <CuboidCollider args={[18, 0.18, 18]} position={[0, -2.2, 0]} />
         </RigidBody>
-        <Dice bodyRef={player1Dice} color="#f5f0df" accent="#16181d" position={[-1.2, 1.3, 0]} />
-        <Dice bodyRef={player2Dice} color="#9bd7ff" accent="#111827" position={[1.2, 1.3, 0]} />
+        <Dice bodyRef={dice} color="#f5f0df" accent="#16181d" position={[0, 1.3, 0]} />
       </Physics>
       <mesh position={[0, -0.09, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[2.15, 2.2, 96]} />

@@ -13,6 +13,8 @@ export type GameState = {
   player2Name: string;
   player1Score: number;
   player2Score: number;
+  currentPlayer: PlayerId;
+  pendingPlayer1Roll?: number;
   status: "active" | "finished";
   winner?: PlayerId;
   rounds: Round[];
@@ -26,6 +28,7 @@ export function createInitialGame(): GameState {
     player2Name: "Player 2",
     player1Score: 0,
     player2Score: 0,
+    currentPlayer: "p1",
     status: "active",
     rounds: [],
   };
@@ -66,6 +69,31 @@ export function applyRound(
       },
       ...state.rounds,
     ].slice(0, 8),
+  };
+}
+
+export function applyTurnRoll(state: GameState, roll: number): GameState {
+  if (state.status === "finished") return state;
+
+  if (state.currentPlayer === "p1") {
+    return {
+      ...state,
+      pendingPlayer1Roll: roll,
+      currentPlayer: "p2",
+    };
+  }
+
+  if (state.pendingPlayer1Roll === undefined) {
+    return {
+      ...state,
+      currentPlayer: "p1",
+    };
+  }
+
+  return {
+    ...applyRound(state, state.pendingPlayer1Roll, roll),
+    pendingPlayer1Roll: undefined,
+    currentPlayer: "p1",
   };
 }
 
