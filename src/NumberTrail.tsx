@@ -516,8 +516,8 @@ function TrailBoard3D({
               <meshStandardMaterial color="#594a27" roughness={0.62} metalness={0.12} />
             </mesh>
             <TrailArrow
-              position={[(x1 + x2) / 2, 0.1, (z1 + z2) / 2]}
-              rotation={[Math.PI / 2, 0, -angle]}
+              position={[(x1 + x2) / 2, 0.025, (z1 + z2) / 2]}
+              rotationY={angle}
             />
           </group>
         );
@@ -575,16 +575,33 @@ function TrailBoard3D({
 
 function TrailArrow({
   position,
-  rotation,
+  rotationY,
 }: {
   position: [number, number, number];
-  rotation: [number, number, number];
+  rotationY: number;
 }) {
+  const groupRef = useRef<Group>(null);
+
+  useFrame(({ clock }) => {
+    if (!groupRef.current) return;
+    const pulse = 0.55 + (Math.sin(clock.elapsedTime * 5.2) + 1) * 0.22;
+    groupRef.current.children.forEach((child) => {
+      const mesh = child as { material?: { opacity?: number } };
+      if (mesh.material) mesh.material.opacity = pulse;
+    });
+  });
+
   return (
-    <mesh position={position} rotation={rotation}>
-      <coneGeometry args={[0.12, 0.32, 3]} />
-      <meshStandardMaterial color="#f7c948" roughness={0.5} metalness={0.08} />
-    </mesh>
+    <group ref={groupRef} position={position} rotation={[0, rotationY, 0]}>
+      <mesh position={[-0.035, 0, 0.026]} rotation={[0, 0.64, 0]}>
+        <boxGeometry args={[0.024, 0.012, 0.14]} />
+        <meshBasicMaterial color="#ff3b30" transparent opacity={0.78} />
+      </mesh>
+      <mesh position={[0.035, 0, 0.026]} rotation={[0, -0.64, 0]}>
+        <boxGeometry args={[0.024, 0.012, 0.14]} />
+        <meshBasicMaterial color="#ff3b30" transparent opacity={0.78} />
+      </mesh>
+    </group>
   );
 }
 
