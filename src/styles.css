@@ -816,6 +816,12 @@ h2 {
   animation: winnerBackdrop 360ms ease-out both;
 }
 
+.winner-overlay.lose {
+  background:
+    radial-gradient(circle at center, rgba(239, 83, 80, 0.22), transparent 34%),
+    rgba(5, 7, 12, 0.78);
+}
+
 .winner-panel {
   position: relative;
   z-index: 2;
@@ -839,8 +845,23 @@ h2 {
   animation: winnerPanelOpen 640ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+.winner-overlay.lose .winner-panel {
+  border-color: rgba(239, 83, 80, 0.46);
+  background:
+    linear-gradient(135deg, rgba(239, 83, 80, 0.18), transparent 36%),
+    linear-gradient(225deg, rgba(120, 130, 150, 0.16), transparent 44%),
+    rgba(13, 15, 19, 0.95);
+  box-shadow:
+    0 30px 100px rgba(0, 0, 0, 0.58),
+    0 0 52px rgba(239, 83, 80, 0.14);
+}
+
 .winner-panel svg {
   color: #f7c948;
+}
+
+.winner-overlay.lose .winner-panel svg {
+  color: #ff7a70;
 }
 
 .winner-panel span {
@@ -860,6 +881,14 @@ h2 {
     winnerNamePulse 900ms ease-out 180ms both;
 }
 
+.winner-overlay.lose .winner-panel span {
+  background: linear-gradient(90deg, #f4f2ea, #ff7a70, #8f98a8, #f4f2ea);
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  filter: drop-shadow(0 0 18px rgba(239, 83, 80, 0.3));
+}
+
 .winner-panel strong {
   color: #f7c948;
   font-size: clamp(4rem, 18vw, 9rem);
@@ -869,6 +898,13 @@ h2 {
   text-shadow:
     0 0 24px rgba(247, 201, 72, 0.42),
     0 10px 0 rgba(0, 0, 0, 0.28);
+}
+
+.winner-overlay.lose .winner-panel strong {
+  color: #ff7a70;
+  text-shadow:
+    0 0 24px rgba(239, 83, 80, 0.38),
+    0 10px 0 rgba(0, 0, 0, 0.3);
 }
 
 .winner-panel .roll-button,

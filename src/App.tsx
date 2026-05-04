@@ -374,7 +374,9 @@ export function App() {
 
         {game.status === "finished" && (
           <WinnerOverlay
-            winnerName={game.winner === "p1" ? game.player1Name : game.player2Name}
+            playerName={game.winner === "p1" ? game.player1Name : game.player2Name}
+            resultLabel="Win"
+            tone="win"
             onReset={reset}
             onNewSetup={changeMatchSettings}
           />
@@ -701,7 +703,9 @@ function OnlineGame({
 
         {game.status === "finished" && (
           <WinnerOverlay
-            winnerName={game.winner === "p1" ? game.player1Name : game.player2Name}
+            playerName={playerId === "p1" ? game.player1Name : game.player2Name}
+            resultLabel={game.winner === playerId ? "You Win" : "You Lose"}
+            tone={game.winner === playerId ? "win" : "lose"}
             onReset={onRestart}
           />
         )}
@@ -744,25 +748,31 @@ function OnlineGame({
 }
 
 function WinnerOverlay({
-  winnerName,
+  playerName,
+  resultLabel,
+  tone,
   onReset,
   onNewSetup,
 }: {
-  winnerName: string;
+  playerName: string;
+  resultLabel: string;
+  tone: "win" | "lose";
   onReset: () => void;
   onNewSetup?: () => void;
 }) {
   return (
-    <div className="winner-overlay" role="dialog" aria-label="Match winner">
-      <div className="confetti-strips" aria-hidden="true">
-        {Array.from({ length: 22 }).map((_, index) => (
-          <span key={index} />
-        ))}
-      </div>
+    <div className={`winner-overlay ${tone}`} role="dialog" aria-label="Match result">
+      {tone === "win" && (
+        <div className="confetti-strips" aria-hidden="true">
+          {Array.from({ length: 22 }).map((_, index) => (
+            <span key={index} />
+          ))}
+        </div>
+      )}
       <div className="winner-panel">
         <Sparkles size={28} />
-        <span>{winnerName}</span>
-        <strong>Win</strong>
+        <span>{playerName}</span>
+        <strong>{resultLabel}</strong>
         <button className="roll-button" type="button" onClick={onReset}>
           Reset game
         </button>
