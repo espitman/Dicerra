@@ -2,7 +2,7 @@ import { OrbitControls, Text } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { ArrowLeft, Dices, Play, RefreshCcw, Sparkles } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Group, Vector3 } from "three";
+import { Group, MOUSE, TOUCH, Vector3 } from "three";
 
 type PlayerId = "p1" | "p2";
 
@@ -116,9 +116,19 @@ function findNearestTile(tiles: TrailTile[], fromIndex: number, roll: number) {
 export function NumberTrailGame({ onBack }: { onBack: () => void }) {
   const [tiles, setTiles] = useState<TrailTile[]>(() => createTrail());
   const [state, setState] = useState<TrailState>(createInitialTrailState);
+  const [isRolling, setIsRolling] = useState(false);
+  const rollTimeoutRef = useRef<number>();
   const finishIndex = tiles.length - 1;
 
+  useEffect(() => {
+    return () => {
+      if (rollTimeoutRef.current) window.clearTimeout(rollTimeoutRef.current);
+    };
+  }, []);
+
   const startGame = (player1Name: string, player2Name: string) => {
+    if (rollTimeoutRef.current) window.clearTimeout(rollTimeoutRef.current);
+    setIsRolling(false);
     setTiles(createTrail());
     setState({
       ...createInitialTrailState(),
@@ -130,6 +140,8 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
   };
 
   const resetGame = () => {
+    if (rollTimeoutRef.current) window.clearTimeout(rollTimeoutRef.current);
+    setIsRolling(false);
     setTiles(createTrail());
     setState((current) => ({
       ...createInitialTrailState(),
@@ -141,29 +153,43 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
   };
 
   const roll = () => {
-    if (state.status === "finished") return;
+    if (isRolling || state.status === "finished") return;
     const player = state.currentPlayer;
     const rollValue = rollDie();
-    const currentIndex = state.positions[player];
-    const nextIndex = findNearestTile(tiles, currentIndex, rollValue);
-    const winner = nextIndex >= finishIndex ? player : undefined;
     const playerName = player === "p1" ? state.player1Name : state.player2Name;
-    const direction =
-      nextIndex === currentIndex ? "stays put" : nextIndex > currentIndex ? "moves forward" : "moves back";
 
     setState((current) => ({
       ...current,
-      lastRoll: rollValue,
-      positions: { ...current.positions, [player]: nextIndex },
-      moveSeq: current.moveSeq + 1,
-      currentPlayer: player === "p1" ? "p2" : "p1",
-      status: winner ? "finished" : "active",
-      winner,
-      message:
-        currentIndex > 0 && tiles[currentIndex].value === rollValue
-          ? `${playerName} rolled ${rollValue} and holds this tile`
-          : `${playerName} rolled ${rollValue} and ${direction}`,
+      lastRoll: undefined,
+      message: `${playerName} is rolling`,
     }));
+    setIsRolling(true);
+
+    rollTimeoutRef.current = window.setTimeout(() => {
+      setState((current) => {
+        const currentIndex = current.positions[player];
+        const nextIndex = findNearestTile(tiles, currentIndex, rollValue);
+        const winner = nextIndex >= finishIndex ? player : undefined;
+        const direction =
+          nextIndex === currentIndex ? "stays put" : nextIndex > currentIndex ? "moves forward" : "moves back";
+
+        return {
+          ...current,
+          lastRoll: rollValue,
+          positions: { ...current.positions, [player]: nextIndex },
+          moveSeq: current.moveSeq + 1,
+          currentPlayer: player === "p1" ? "p2" : "p1",
+          status: winner ? "finished" : "active",
+          winner,
+          message:
+            currentIndex > 0 && tiles[currentIndex].value === rollValue
+              ? `${playerName} rolled ${rollValue} and holds this tile`
+              : `${playerName} rolled ${rollValue} and ${direction}`,
+        };
+      });
+      setIsRolling(false);
+      rollTimeoutRef.current = undefined;
+    }, 920);
   };
 
   if (!state.setupComplete) {
@@ -194,7 +220,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
         <div className="trail-scorebar">
           <TrailPlayer name={state.player1Name} position={state.positions.p1} active={state.currentPlayer === "p1"} tone="warm" />
           <div className="trail-roll">
-            <TrailDice value={state.lastRoll} />
+            <TrailDice value={state.lastRoll} rolling={isRolling} />
           </div>
           <TrailPlayer name={state.player2Name} position={state.positions.p2} active={state.currentPlayer === "p2"} tone="cool" />
         </div>
@@ -211,7 +237,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
 
         <div className="trail-action-row">
           <p>{state.message}</p>
-          <button className="roll-button" type="button" onClick={roll} disabled={state.status === "finished"}>
+          <button className="roll-button" type="button" onClick={roll} disabled={isRolling || state.status === "finished"}>
             {state.status === "finished" ? "Trail finished" : `${currentPlayerName} roll`}
           </button>
         </div>
@@ -303,10 +329,29 @@ function TrailPlayer({
   );
 }
 
-function TrailDice({ value }: { value?: number }) {
+function TrailDice({ value, rolling }: { value?: number; rolling: boolean }) {
+  const [visibleRoll, setVisibleRoll] = useState(value ?? 1);
+
+  useEffect(() => {
+    if (!rolling) {
+      setVisibleRoll(value ?? 1);
+      return undefined;
+    }
+
+    const startedAt = performance.now();
+    const interval = window.setInterval(() => {
+      const elapsed = performance.now() - startedAt;
+      const speed = Math.max(58, 120 - elapsed / 16);
+      const next = Math.floor(elapsed / speed) % 6;
+      setVisibleRoll((next % 6) + 1);
+    }, 45);
+
+    return () => window.clearInterval(interval);
+  }, [rolling, value]);
+
   return (
-    <div className={`trail-dice-face value-${value ?? 1} ${value ? "" : "empty"}`}>
-      {value ? Array.from({ length: value }).map((_, index) => <i key={index} />) : <Dices size={26} />}
+    <div className={`trail-dice-face value-${visibleRoll} ${value || rolling ? "" : "empty"} ${rolling ? "rolling" : ""}`}>
+      {value || rolling ? Array.from({ length: visibleRoll }).map((_, index) => <i key={index} />) : <Dices size={26} />}
     </div>
   );
 }
@@ -380,7 +425,17 @@ function TrailBoard3D({
         offset={player1Index === player2Index ? 0.18 : 0}
         moveSeq={moveSeq}
       />
-      <OrbitControls enablePan={false} minDistance={8.2} maxDistance={14.5} minPolarAngle={0.5} maxPolarAngle={1.08} />
+      <OrbitControls
+        enablePan
+        screenSpacePanning
+        panSpeed={0.9}
+        mouseButtons={{ LEFT: MOUSE.PAN, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE }}
+        touches={{ ONE: TOUCH.PAN, TWO: TOUCH.DOLLY_ROTATE }}
+        minDistance={8.2}
+        maxDistance={14.5}
+        minPolarAngle={0.5}
+        maxPolarAngle={1.08}
+      />
     </Canvas>
   );
 }

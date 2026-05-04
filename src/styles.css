@@ -1004,6 +1004,10 @@ h2 {
   place-items: center;
 }
 
+.trail-dice-face.rolling {
+  animation: trailDiceRoll 460ms ease-in-out infinite alternate;
+}
+
 .trail-dice-face i {
   width: 100%;
   aspect-ratio: 1;
@@ -1035,6 +1039,22 @@ h2 {
 .trail-dice-face.value-6 i:nth-child(5) { grid-area: 2 / 3; }
 .trail-dice-face.value-6 i:nth-child(6) { grid-area: 3 / 3; }
 
+@keyframes trailDiceRoll {
+  from {
+    transform: translateY(0) rotate(-5deg) scale(1);
+    box-shadow:
+      inset -8px -10px 0 rgba(0, 0, 0, 0.12),
+      0 14px 24px rgba(0, 0, 0, 0.24);
+  }
+  to {
+    transform: translateY(-7px) rotate(7deg) scale(1.05);
+    box-shadow:
+      inset -8px -10px 0 rgba(0, 0, 0, 0.12),
+      0 20px 34px rgba(0, 0, 0, 0.32),
+      0 0 28px rgba(247, 201, 72, 0.18);
+  }
+}
+
 .trail-board-wrap {
   min-height: 540px;
   overflow: hidden;
@@ -1045,6 +1065,15 @@ h2 {
     #111318;
   display: grid;
   place-items: center;
+}
+
+.trail-board-wrap canvas {
+  cursor: grab;
+  touch-action: none;
+}
+
+.trail-board-wrap canvas:active {
+  cursor: grabbing;
 }
 
 .trail-board {
