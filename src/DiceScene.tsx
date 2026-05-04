@@ -61,6 +61,15 @@ const faces = [
   { value: 4, position: [-0.505, 0, 0], rotation: [0, -Math.PI / 2, 0] },
 ] as const;
 
+const arena = {
+  halfWidth: 7,
+  halfDepth: 5,
+  visibleHalfWidth: 2.85,
+  visibleHalfDepth: 1.95,
+  wallHeight: 2.6,
+  wallThickness: 0.16,
+};
+
 function Pip({ x, y, color }: { x: number; y: number; color: string }) {
   return (
     <mesh position={[x, y, 0.006]}>
@@ -123,9 +132,9 @@ function Arena({ rollToken, onRollStart, onRollComplete }: DiceSceneProps) {
       body.setAngvel({ x: 0, y: 0, z: 0 }, true);
       body.applyImpulse(
         {
-          x: -x * (1.15 + Math.random() * 0.9),
+          x: -x * (0.8 + Math.random() * 0.55),
           y: 3.7 + Math.random() * 1.2,
-          z: -1.8 + Math.random() * 3.6,
+          z: -1.15 + Math.random() * 2.3,
         },
         true,
       );
@@ -173,14 +182,27 @@ function Arena({ rollToken, onRollStart, onRollComplete }: DiceSceneProps) {
       <Physics gravity={[0, -9.81, 0]}>
         <RigidBody type="fixed" colliders={false}>
           <mesh receiveShadow rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.03, 0]}>
-            <boxGeometry args={[6.2, 4.2, 0.14]} />
+            <boxGeometry args={[arena.halfWidth * 2, arena.halfDepth * 2, 0.16]} />
             <meshStandardMaterial color="#272a2f" roughness={0.72} metalness={0.1} />
           </mesh>
-          <CuboidCollider args={[3.1, 0.07, 2.1]} position={[0, -0.03, 0]} />
-          <CuboidCollider args={[3.1, 0.7, 0.1]} position={[0, 0.6, -2.1]} />
-          <CuboidCollider args={[3.1, 0.7, 0.1]} position={[0, 0.6, 2.1]} />
-          <CuboidCollider args={[0.1, 0.7, 2.1]} position={[-3.1, 0.6, 0]} />
-          <CuboidCollider args={[0.1, 0.7, 2.1]} position={[3.1, 0.6, 0]} />
+          <CuboidCollider args={[arena.halfWidth, 0.08, arena.halfDepth]} position={[0, -0.03, 0]} />
+          <CuboidCollider
+            args={[arena.visibleHalfWidth, arena.wallHeight, arena.wallThickness]}
+            position={[0, arena.wallHeight - 0.02, -arena.visibleHalfDepth]}
+          />
+          <CuboidCollider
+            args={[arena.visibleHalfWidth, arena.wallHeight, arena.wallThickness]}
+            position={[0, arena.wallHeight - 0.02, arena.visibleHalfDepth]}
+          />
+          <CuboidCollider
+            args={[arena.wallThickness, arena.wallHeight, arena.visibleHalfDepth]}
+            position={[-arena.visibleHalfWidth, arena.wallHeight - 0.02, 0]}
+          />
+          <CuboidCollider
+            args={[arena.wallThickness, arena.wallHeight, arena.visibleHalfDepth]}
+            position={[arena.visibleHalfWidth, arena.wallHeight - 0.02, 0]}
+          />
+          <CuboidCollider args={[18, 0.18, 18]} position={[0, -2.2, 0]} />
         </RigidBody>
         <Dice bodyRef={player1Dice} color="#f5f0df" accent="#16181d" position={[-1.2, 1.3, 0]} />
         <Dice bodyRef={player2Dice} color="#9bd7ff" accent="#111827" position={[1.2, 1.3, 0]} />
@@ -203,7 +225,7 @@ function Arena({ rollToken, onRollStart, onRollComplete }: DiceSceneProps) {
 
 export function DiceScene(props: DiceSceneProps) {
   return (
-    <Canvas shadows camera={{ position: [0, 4.2, 6.2], fov: 42 }} dpr={[1, 2]}>
+    <Canvas shadows camera={{ position: [0, 4.5, 6.6], fov: 46 }} dpr={[1, 2]}>
       <Arena {...props} />
     </Canvas>
   );
@@ -213,7 +235,7 @@ function CameraRig() {
   const { camera } = useThree();
 
   useEffect(() => {
-    camera.position.set(0, 4.2, 6.2);
+    camera.position.set(0, 4.5, 6.6);
     camera.lookAt(0, 0.45, 0);
     camera.updateProjectionMatrix();
   }, [camera]);
