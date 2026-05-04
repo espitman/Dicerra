@@ -928,7 +928,7 @@ h2 {
 
 .trail-panel {
   min-height: calc(100vh - 56px);
-  padding: 22px;
+  padding: 18px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background:
@@ -936,29 +936,33 @@ h2 {
     rgba(13, 15, 19, 0.88);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
   display: grid;
-  grid-template-rows: auto auto minmax(440px, 1fr) auto;
-  gap: 16px;
+  grid-template-rows: auto auto minmax(560px, 1fr) auto;
+  gap: 12px;
 }
 
 .trail-scorebar {
   display: grid;
-  grid-template-columns: 1fr 116px 1fr;
-  gap: 12px;
+  grid-template-columns: minmax(150px, 0.72fr) 168px minmax(150px, 0.72fr);
+  gap: 10px;
   align-items: stretch;
+  justify-content: center;
 }
 
 .trail-player,
 .trail-roll {
   min-width: 0;
-  padding: 14px;
+  padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   background: rgba(255, 255, 255, 0.06);
 }
 
 .trail-player {
-  display: grid;
-  gap: 6px;
+  min-height: 66px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .trail-player.warm.active {
@@ -973,15 +977,16 @@ h2 {
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
 }
 
 .trail-player-name strong {
+  font-size: 0.95rem;
   overflow-wrap: anywhere;
 }
 
 .trail-turn-icon {
-  width: 28px;
+  width: 24px;
   aspect-ratio: 1;
   flex: 0 0 auto;
   border-radius: 999px;
@@ -999,19 +1004,24 @@ h2 {
 
 .trail-player span {
   color: #9aa4b2;
+  flex: 0 0 auto;
+  font-size: 0.78rem;
   font-weight: 850;
 }
 
 .trail-roll {
-  display: grid;
-  place-items: center;
+  min-height: 66px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
   color: #f7c948;
 }
 
 .trail-dice-face {
-  width: 78px;
+  width: 56px;
   aspect-ratio: 1;
-  padding: 12px;
+  padding: 9px;
   border-radius: 8px;
   color: #111318;
   background: linear-gradient(145deg, #f5f0df, #cfd3d8);
@@ -1021,11 +1031,29 @@ h2 {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   grid-template-rows: repeat(3, 1fr);
-  gap: 6px;
+  gap: 4px;
 }
 
 .trail-dice-face.empty {
   place-items: center;
+}
+
+.trail-stats {
+  width: auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 3px;
+  color: #c8ced8;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.trail-stats span:first-child {
+  color: #f7c948;
+  font-size: 0.86rem;
 }
 
 .trail-dice-face.rolling {
@@ -1081,7 +1109,7 @@ h2 {
 
 .trail-board-wrap {
   position: relative;
-  min-height: 540px;
+  min-height: 640px;
   overflow: hidden;
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -1347,6 +1375,24 @@ h2 {
   .trail-scorebar,
   .trail-action-row {
     grid-template-columns: 1fr;
+  }
+
+  .trail-panel {
+    grid-template-rows: auto auto minmax(520px, 1fr) auto;
+    padding: 12px;
+  }
+
+  .trail-scorebar {
+    gap: 8px;
+  }
+
+  .trail-player,
+  .trail-roll {
+    min-height: 58px;
+  }
+
+  .trail-board-wrap {
+    min-height: 520px;
   }
 
   .setup-board,

@@ -1,7 +1,7 @@
 import { OrbitControls, Text } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { ArrowLeft, Dices, Move3D, Play, RefreshCcw, Rotate3D, Sparkles, UserRound } from "lucide-react";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Group, MOUSE, TOUCH, Vector3 } from "three";
 
 type PlayerId = "p1" | "p2";
@@ -24,6 +24,9 @@ type TrailState = {
   message: string;
   status: "active" | "finished";
   winner?: PlayerId;
+  startedAt?: number;
+  finishedAt?: number;
+  rollCount: number;
   moveSeq: number;
   landTileIndex?: number;
   landSeq: number;
@@ -89,10 +92,18 @@ function createInitialTrailState(): TrailState {
     positions: { p1: 0, p2: 0 },
     message: "Set up the trail race",
     status: "active",
+    rollCount: 0,
     moveSeq: 0,
     landSeq: 0,
     burnSeq: 0,
   };
+}
+
+function formatElapsedTime(milliseconds: number) {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 function rollDie() {
@@ -142,6 +153,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
   const [state, setState] = useState<TrailState>(createInitialTrailState);
   const [isRolling, setIsRolling] = useState(false);
   const [cameraMode, setCameraMode] = useState<CameraMode>("rotate");
+  const [timerNow, setTimerNow] = useState(() => Date.now());
   const rollTimeoutRef = useRef<number>();
   const finishIndex = tiles.length - 1;
 
@@ -150,6 +162,12 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
       if (rollTimeoutRef.current) window.clearTimeout(rollTimeoutRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!state.setupComplete || state.status === "finished") return undefined;
+    const interval = window.setInterval(() => setTimerNow(Date.now()), 500);
+    return () => window.clearInterval(interval);
+  }, [state.setupComplete, state.status]);
 
   const startGame = (player1Name: string, player2Name: string) => {
     if (rollTimeoutRef.current) window.clearTimeout(rollTimeoutRef.current);
@@ -160,8 +178,10 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
       player1Name: player1Name.trim() || "Player 1",
       player2Name: player2Name.trim() || "Player 2",
       setupComplete: true,
+      startedAt: Date.now(),
       message: `${player1Name.trim() || "Player 1"} starts on the trail`,
     });
+    setTimerNow(Date.now());
   };
 
   const resetGame = () => {
@@ -173,8 +193,10 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
       player1Name: current.player1Name,
       player2Name: current.player2Name,
       setupComplete: true,
+      startedAt: Date.now(),
       message: `${current.player1Name} starts on the trail`,
     }));
+    setTimerNow(Date.now());
   };
 
   const roll = () => {
@@ -196,6 +218,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
       setState((current) => {
         const currentIndex = current.positions[player];
         const nextIndex = findNearestTile(tiles, currentIndex, rollValue);
+        const completedAt = Date.now();
         const winner = nextIndex >= finishIndex ? player : undefined;
         const burnTileIndex = nextIndex < currentIndex ? findNearestForwardTile(tiles, currentIndex, rollValue) : undefined;
         const burnSeq = burnTileIndex === undefined ? current.burnSeq : current.burnSeq + 1;
@@ -205,6 +228,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
         return {
           ...current,
           lastRoll: rollValue,
+          rollCount: current.rollCount + 1,
           positions: { ...current.positions, [player]: nextIndex },
           moveSeq: current.moveSeq + 1,
           landTileIndex: nextIndex,
@@ -212,6 +236,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
           currentPlayer: player === "p1" ? "p2" : "p1",
           status: winner ? "finished" : "active",
           winner,
+          finishedAt: winner ? completedAt : undefined,
           burnTileIndex,
           burnSeq,
           message:
@@ -231,6 +256,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
 
   const currentPlayerName = state.currentPlayer === "p1" ? state.player1Name : state.player2Name;
   const winnerName = state.winner === "p1" ? state.player1Name : state.player2Name;
+  const elapsedTime = formatElapsedTime((state.finishedAt ?? timerNow) - (state.startedAt ?? timerNow));
 
   return (
     <main className="trail-shell">
@@ -254,6 +280,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
           <TrailPlayer name={state.player1Name} position={state.positions.p1} active={state.currentPlayer === "p1"} tone="warm" />
           <div className="trail-roll">
             <TrailDice value={state.lastRoll} rolling={isRolling} />
+            <TrailStats elapsedTime={elapsedTime} rollCount={state.rollCount} />
           </div>
           <TrailPlayer name={state.player2Name} position={state.positions.p2} active={state.currentPlayer === "p2"} tone="cool" />
         </div>
@@ -422,6 +449,15 @@ function TrailDice({ value, rolling }: { value?: number; rolling: boolean }) {
   );
 }
 
+function TrailStats({ elapsedTime, rollCount }: { elapsedTime: string; rollCount: number }) {
+  return (
+    <div className="trail-stats" aria-label="Game stats">
+      <span>{elapsedTime}</span>
+      <span>{rollCount} rolls</span>
+    </div>
+  );
+}
+
 function toBoardPosition(tile: TrailTile, offset = 0): [number, number, number] {
   return [(tile.x - 360) / 48 + offset, 0, (tile.y - 360) / 48];
 }
@@ -581,7 +617,8 @@ function TrailTile3D({
     <group position={[x, y, z]}>
       {isLandTarget && <TrailTileGlow key={`land-${landSeq}`} tone="land" />}
       {isBurnTarget && <TrailTileGlow key={`burn-${burnSeq}`} tone="burn" />}
-      {isFinish && <TrailFinishFlag />}
+      {tile.index === 0 && <TrailFlag tone="start" />}
+      {isFinish && <TrailFlag tone="finish" />}
       <mesh castShadow receiveShadow position={[0, 0.1, 0]}>
         <boxGeometry args={[0.62, isFinish ? 0.32 : 0.24, 0.62]} />
         <meshStandardMaterial
@@ -608,7 +645,10 @@ function TrailTile3D({
   );
 }
 
-function TrailFinishFlag() {
+function TrailFlag({ tone }: { tone: "start" | "finish" }) {
+  const flagColor = tone === "start" ? "#f7c948" : "#2dff8a";
+  const flagGlow = tone === "start" ? "#d29b22" : "#1ccf6d";
+
   return (
     <group position={[0.28, 0.42, -0.18]}>
       <mesh castShadow position={[0, 0.34, 0]}>
@@ -617,9 +657,9 @@ function TrailFinishFlag() {
       </mesh>
       <mesh castShadow position={[0.13, 0.52, 0]} rotation={[0, 0, 0]}>
         <boxGeometry args={[0.26, 0.18, 0.025]} />
-        <meshStandardMaterial color="#2dff8a" emissive="#1ccf6d" emissiveIntensity={0.22} roughness={0.5} />
+        <meshStandardMaterial color={flagColor} emissive={flagGlow} emissiveIntensity={0.22} roughness={0.5} />
       </mesh>
-      <pointLight color="#2dff8a" intensity={0.48} distance={1.2} />
+      <pointLight color={flagColor} intensity={0.48} distance={1.2} />
     </group>
   );
 }
@@ -660,8 +700,10 @@ function TrailToken3D({
   moveSeq: number;
   shouldWiggle: boolean;
 }) {
-  const [x, , z] = toBoardPosition(tiles[index], offset);
-  const target = new Vector3(x, 0.72, z);
+  const target = useMemo(() => {
+    const [x, , z] = toBoardPosition(tiles[index], offset);
+    return new Vector3(x, 0.72, z);
+  }, [index, offset, tiles]);
   const groupRef = useRef<Group>(null);
   const currentPosition = useRef(target.clone());
   const currentIndex = useRef(index);
