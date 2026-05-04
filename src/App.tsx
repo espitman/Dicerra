@@ -72,8 +72,8 @@ export function App() {
       <section className="game-surface" aria-label="Dicerra game table">
         <div className="topbar">
           <div>
-            <span className="eyebrow">Dicerra</span>
-            <h1>Dice Duel</h1>
+            <span className="eyebrow">3D dice arena</span>
+            <h1>Dicerra</h1>
           </div>
           <button className="icon-button" type="button" onClick={reset} aria-label="Restart game">
             <RefreshCcw size={19} />
