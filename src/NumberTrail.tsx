@@ -9,7 +9,7 @@ type CameraMode = "rotate" | "pan";
 
 type TrailTile = {
   index: number;
-  value: number;
+  value?: number;
   x: number;
   y: number;
 };
@@ -34,7 +34,7 @@ type TrailState = {
 const trailLength = 30;
 
 function createTrailValues() {
-  const values = Array.from({ length: trailLength }, (_, index) => (index % 6) + 1);
+  const values = Array.from({ length: trailLength - 1 }, (_, index) => (index % 6) + 1);
 
   for (let index = values.length - 1; index > 0; index -= 1) {
     const swapIndex = Math.floor(Math.random() * (index + 1));
@@ -58,10 +58,10 @@ function createTrail(): TrailTile[] {
   let directionIndex = 0;
   let segmentLength = 1;
 
-  while (points.length < trailValues.length) {
-    for (let repeat = 0; repeat < 2 && points.length < trailValues.length; repeat += 1) {
+  while (points.length < trailLength) {
+    for (let repeat = 0; repeat < 2 && points.length < trailLength; repeat += 1) {
       const [dx, dy] = directions[directionIndex % directions.length];
-      for (let step = 0; step < segmentLength && points.length < trailValues.length; step += 1) {
+      for (let step = 0; step < segmentLength && points.length < trailLength; step += 1) {
         x += dx;
         y += dy;
         points.push([x, y]);
@@ -72,9 +72,9 @@ function createTrail(): TrailTile[] {
   }
 
   const spacing = 76;
-  return trailValues.map((value, index) => ({
+  return Array.from({ length: trailLength }, (_, index) => ({
     index,
-    value,
+    value: index === 0 ? undefined : trailValues[index - 1],
     x: 360 + points[index][0] * spacing,
     y: 360 + points[index][1] * spacing,
   }));
@@ -107,6 +107,7 @@ function findNearestTile(tiles: TrailTile[], fromIndex: number, roll: number) {
   let bestDirection = -1;
 
   for (const tile of tiles) {
+    if (tile.index === 0) continue;
     if (tile.value !== roll) continue;
     const distance = Math.abs(tile.index - fromIndex);
     const direction = tile.index >= fromIndex ? 1 : -1;
@@ -125,7 +126,7 @@ function findNearestForwardTile(tiles: TrailTile[], fromIndex: number, roll: num
   let bestDistance = Number.POSITIVE_INFINITY;
 
   for (const tile of tiles) {
-    if (tile.index <= fromIndex || tile.value !== roll) continue;
+    if (tile.index === 0 || tile.index <= fromIndex || tile.value !== roll) continue;
     const distance = tile.index - fromIndex;
     if (distance < bestDistance) {
       bestIndex = tile.index;
@@ -569,7 +570,9 @@ function TrailTile3D({
   const [x, y, z] = toBoardPosition(tile);
   const color = isFinish
     ? "#f7c948"
-    : tile.value === 1 || tile.value === 4
+    : tile.index === 0
+      ? "#6f7480"
+      : tile.value === 1 || tile.value === 4
       ? "#8a6f28"
       : tile.value === 2 || tile.value === 5
         ? "#326b86"
@@ -578,6 +581,7 @@ function TrailTile3D({
     <group position={[x, y, z]}>
       {isLandTarget && <TrailTileGlow key={`land-${landSeq}`} tone="land" />}
       {isBurnTarget && <TrailTileGlow key={`burn-${burnSeq}`} tone="burn" />}
+      {isFinish && <TrailFinishFlag />}
       <mesh castShadow receiveShadow position={[0, 0.1, 0]}>
         <boxGeometry args={[0.62, isFinish ? 0.32 : 0.24, 0.62]} />
         <meshStandardMaterial
@@ -598,8 +602,24 @@ function TrailTile3D({
         outlineColor="#111318"
         outlineWidth={0.025}
       >
-        {tile.index === 0 ? "S" : isFinish ? "F" : tile.value}
+        {tile.index === 0 ? "S" : tile.value}
       </Text>
+    </group>
+  );
+}
+
+function TrailFinishFlag() {
+  return (
+    <group position={[0.28, 0.42, -0.18]}>
+      <mesh castShadow position={[0, 0.34, 0]}>
+        <cylinderGeometry args={[0.018, 0.018, 0.68, 12]} />
+        <meshStandardMaterial color="#f4f2ea" roughness={0.42} metalness={0.18} />
+      </mesh>
+      <mesh castShadow position={[0.13, 0.52, 0]} rotation={[0, 0, 0]}>
+        <boxGeometry args={[0.26, 0.18, 0.025]} />
+        <meshStandardMaterial color="#2dff8a" emissive="#1ccf6d" emissiveIntensity={0.22} roughness={0.5} />
+      </mesh>
+      <pointLight color="#2dff8a" intensity={0.48} distance={1.2} />
     </group>
   );
 }
