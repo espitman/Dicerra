@@ -518,6 +518,8 @@ function TrailBoard3D({
             <TrailArrow
               position={[(x1 + x2) / 2, 0.025, (z1 + z2) / 2]}
               rotationY={angle}
+              sequenceIndex={index}
+              sequenceTotal={tiles.length - 1}
             />
           </group>
         );
@@ -576,15 +578,22 @@ function TrailBoard3D({
 function TrailArrow({
   position,
   rotationY,
+  sequenceIndex,
+  sequenceTotal,
 }: {
   position: [number, number, number];
   rotationY: number;
+  sequenceIndex: number;
+  sequenceTotal: number;
 }) {
   const groupRef = useRef<Group>(null);
 
   useFrame(({ clock }) => {
     if (!groupRef.current) return;
-    const pulse = 0.55 + (Math.sin(clock.elapsedTime * 5.2) + 1) * 0.22;
+    const arrowPosition = sequenceIndex / Math.max(1, sequenceTotal);
+    const wavePosition = (clock.elapsedTime * 0.08) % 1;
+    const forwardDistance = (arrowPosition - wavePosition + 1) % 1;
+    const pulse = forwardDistance < 0.08 ? 0.96 - forwardDistance * 4.2 : 0.18;
     groupRef.current.children.forEach((child) => {
       const mesh = child as { material?: { opacity?: number } };
       if (mesh.material) mesh.material.opacity = pulse;
