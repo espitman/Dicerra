@@ -1,7 +1,8 @@
-import { ArrowLeft, Crown, Dices, History, Play, RefreshCcw, Sparkles, Swords } from "lucide-react";
+import { ArrowLeft, Crown, Dices, History, Map, Play, RefreshCcw, Sparkles, Swords } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { DiceScene } from "./DiceScene";
+import { NumberTrailGame } from "./NumberTrail";
 import {
   GameState,
   PlayerId,
@@ -13,7 +14,7 @@ import {
 const storageKey = "dicerra.game.v1";
 const socketUrl = import.meta.env.VITE_SOCKET_URL ?? "http://localhost:8201";
 const onlineResultHoldMs = 2000;
-type Route = "games" | "dice-duel" | "online-room";
+type Route = "games" | "dice-duel" | "online-room" | "number-trail";
 
 type PublicRoom = {
   id: string;
@@ -24,6 +25,7 @@ type PublicRoom = {
 
 function readRoute(): Route {
   if (window.location.pathname.startsWith("/dice-duel/room/")) return "online-room";
+  if (window.location.pathname === "/number-trail") return "number-trail";
   return window.location.pathname === "/dice-duel" ? "dice-duel" : "games";
 }
 
@@ -116,6 +118,8 @@ export function App() {
     const path =
       nextRoute === "dice-duel"
         ? "/dice-duel"
+        : nextRoute === "number-trail"
+          ? "/number-trail"
         : nextRoute === "online-room"
           ? `/dice-duel/room/${roomId ?? ""}`
           : "/";
@@ -261,8 +265,13 @@ export function App() {
           setGame((current) => ({ ...current, setupComplete: false }));
           navigate("dice-duel");
         }}
+        onSelectNumberTrail={() => navigate("number-trail")}
       />
     );
+  }
+
+  if (route === "number-trail") {
+    return <NumberTrailGame onBack={() => navigate("games")} />;
   }
 
   if (route === "online-room" && onlineRoom && onlinePlayerId) {
@@ -541,7 +550,13 @@ function MatchSetup({
   );
 }
 
-function GameCatalog({ onSelectDiceDuel }: { onSelectDiceDuel: () => void }) {
+function GameCatalog({
+  onSelectDiceDuel,
+  onSelectNumberTrail,
+}: {
+  onSelectDiceDuel: () => void;
+  onSelectNumberTrail: () => void;
+}) {
   return (
     <main className="catalog-shell">
       <section className="catalog-header" aria-label="Dicerra games">
@@ -566,6 +581,25 @@ function GameCatalog({ onSelectDiceDuel }: { onSelectDiceDuel: () => void }) {
             <em>Turn-based duel with one physical die.</em>
           </span>
           <span className="game-card-preview" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+          <span className="game-card-action">
+            <Play size={18} fill="currentColor" />
+          </span>
+        </button>
+        <button className="game-card" type="button" onClick={onSelectNumberTrail}>
+          <span className="game-card-icon">
+            <Map size={34} />
+          </span>
+          <span className="game-card-copy">
+            <strong>Number Trail</strong>
+            <em>Race through a spiral by matching dice numbers.</em>
+          </span>
+          <span className="game-card-preview trail-preview" aria-hidden="true">
             <i />
             <i />
             <i />
