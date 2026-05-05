@@ -1,7 +1,8 @@
-import { ArrowLeft, Crown, Dices, History, Map, Play, RefreshCcw, Sparkles, Swords } from "lucide-react";
+import { ArrowLeft, Crown, Dices, Hand, History, Map, Play, RefreshCcw, Sparkles, Swords } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { DiceScene } from "./DiceScene";
+import { DiceTugGame } from "./DiceTug";
 import { NumberTrailGame, type NumberTrailRoom } from "./NumberTrail";
 import {
   GameState,
@@ -14,7 +15,7 @@ import {
 const storageKey = "dicerra.game.v1";
 const socketUrl = import.meta.env.VITE_SOCKET_URL ?? "http://localhost:8201";
 const onlineResultHoldMs = 2000;
-type Route = "games" | "dice-duel" | "online-room" | "number-trail" | "number-trail-room";
+type Route = "games" | "dice-duel" | "online-room" | "number-trail" | "number-trail-room" | "dice-tug";
 
 type PublicRoom = {
   id: string;
@@ -27,6 +28,7 @@ function readRoute(): Route {
   if (window.location.pathname.startsWith("/dice-duel/room/")) return "online-room";
   if (window.location.pathname.startsWith("/number-trail/room/")) return "number-trail-room";
   if (window.location.pathname === "/number-trail") return "number-trail";
+  if (window.location.pathname === "/dice-tug") return "dice-tug";
   return window.location.pathname === "/dice-duel" ? "dice-duel" : "games";
 }
 
@@ -142,6 +144,8 @@ export function App() {
         ? "/dice-duel"
         : nextRoute === "number-trail"
           ? "/number-trail"
+        : nextRoute === "dice-tug"
+          ? "/dice-tug"
         : nextRoute === "number-trail-room"
           ? `/number-trail/room/${roomId ?? ""}`
         : nextRoute === "online-room"
@@ -336,6 +340,7 @@ export function App() {
           navigate("dice-duel");
         }}
         onSelectNumberTrail={() => navigate("number-trail")}
+        onSelectDiceTug={() => navigate("dice-tug")}
       />
     );
   }
@@ -414,6 +419,10 @@ export function App() {
         onJoinOnline={joinNumberTrailOnlineRoom}
       />
     );
+  }
+
+  if (route === "dice-tug") {
+    return <DiceTugGame onBack={() => navigate("games")} />;
   }
 
   if (!game.setupComplete) {
@@ -667,9 +676,11 @@ function MatchSetup({
 function GameCatalog({
   onSelectDiceDuel,
   onSelectNumberTrail,
+  onSelectDiceTug,
 }: {
   onSelectDiceDuel: () => void;
   onSelectNumberTrail: () => void;
+  onSelectDiceTug: () => void;
 }) {
   return (
     <main className="catalog-shell">
@@ -714,6 +725,25 @@ function GameCatalog({
             <em>Race through a spiral by matching dice numbers.</em>
           </span>
           <span className="game-card-preview trail-preview" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+          <span className="game-card-action">
+            <Play size={18} fill="currentColor" />
+          </span>
+        </button>
+        <button className="game-card" type="button" onClick={onSelectDiceTug}>
+          <span className="game-card-icon">
+            <Hand size={34} />
+          </span>
+          <span className="game-card-copy">
+            <strong>Dice Tug</strong>
+            <em>Pull one shared token to your exact finish.</em>
+          </span>
+          <span className="game-card-preview tug-preview" aria-hidden="true">
             <i />
             <i />
             <i />

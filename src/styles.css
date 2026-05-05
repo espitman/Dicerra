@@ -317,19 +317,19 @@ button:disabled {
 
 .games-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
+  grid-template-columns: 1fr;
+  gap: 12px;
 }
 
 .game-card {
   width: 100%;
-  min-height: 150px;
+  min-height: 128px;
   padding: 18px;
   border-radius: 8px;
   color: #f4f2ea;
   text-align: left;
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr) 86px 48px;
+  grid-template-columns: 58px minmax(0, 1fr) 96px 48px;
   gap: 16px;
   align-items: center;
   border-color: rgba(155, 215, 255, 0.18);
@@ -432,6 +432,17 @@ button:disabled {
 }
 
 .trail-preview i {
+  display: none;
+}
+
+.tug-preview {
+  background:
+    linear-gradient(90deg, transparent 0 10%, #594a27 10% 90%, transparent 90%),
+    radial-gradient(circle at 50% 50%, #f4f2ea 0 10px, transparent 11px),
+    rgba(255, 255, 255, 0.08);
+}
+
+.tug-preview i {
   display: none;
 }
 
@@ -1184,6 +1195,62 @@ h2 {
 }
 
 .trail-board-wrap canvas:active {
+  cursor: grabbing;
+}
+
+.tug-shell {
+  width: min(1180px, calc(100vw - 32px));
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 28px 0;
+}
+
+.tug-panel {
+  min-height: calc(100vh - 56px);
+  padding: 18px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    linear-gradient(145deg, rgba(247, 201, 72, 0.09), rgba(155, 215, 255, 0.08)),
+    rgba(13, 15, 19, 0.88);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.32);
+  display: grid;
+  grid-template-rows: auto auto minmax(560px, 1fr) auto;
+  gap: 12px;
+}
+
+.tug-scorebar {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.72fr) 168px minmax(150px, 0.72fr);
+  gap: 10px;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.tug-roll .trail-stats span:first-child::before {
+  content: "pull ";
+  color: #9aa4b2;
+  font-size: 0.7rem;
+}
+
+.tug-board-wrap {
+  min-height: 640px;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background:
+    radial-gradient(circle at center, rgba(247, 201, 72, 0.12), transparent 34%),
+    #111318;
+  display: grid;
+  place-items: center;
+}
+
+.tug-board-wrap canvas {
+  cursor: grab;
+  touch-action: none;
+}
+
+.tug-board-wrap canvas:active {
   cursor: grabbing;
 }
 
