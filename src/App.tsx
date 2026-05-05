@@ -2,7 +2,7 @@ import { ArrowLeft, Crown, Dices, History, Map, Play, RefreshCcw, Sparkles, Swor
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { DiceScene } from "./DiceScene";
-import { NumberTrailGame } from "./NumberTrail";
+import { NumberTrailGame, type NumberTrailRoom } from "./NumberTrail";
 import {
   GameState,
   PlayerId,
@@ -14,7 +14,7 @@ import {
 const storageKey = "dicerra.game.v1";
 const socketUrl = import.meta.env.VITE_SOCKET_URL ?? "http://localhost:8201";
 const onlineResultHoldMs = 2000;
-type Route = "games" | "dice-duel" | "online-room" | "number-trail";
+type Route = "games" | "dice-duel" | "online-room" | "number-trail" | "number-trail-room";
 
 type PublicRoom = {
   id: string;
@@ -25,12 +25,17 @@ type PublicRoom = {
 
 function readRoute(): Route {
   if (window.location.pathname.startsWith("/dice-duel/room/")) return "online-room";
+  if (window.location.pathname.startsWith("/number-trail/room/")) return "number-trail-room";
   if (window.location.pathname === "/number-trail") return "number-trail";
   return window.location.pathname === "/dice-duel" ? "dice-duel" : "games";
 }
 
 function readRouteRoomId() {
-  return window.location.pathname.match(/^\/dice-duel\/room\/([^/]+)/)?.[1]?.toUpperCase() ?? "";
+  return (
+    window.location.pathname.match(/^\/dice-duel\/room\/([^/]+)/)?.[1]?.toUpperCase() ??
+    window.location.pathname.match(/^\/number-trail\/room\/([^/]+)/)?.[1]?.toUpperCase() ??
+    ""
+  );
 }
 
 function readStoredGame(): GameState {
@@ -59,8 +64,13 @@ export function App() {
   const [onlineDisplayRolls, setOnlineDisplayRolls] = useState<{ p1?: number; p2?: number }>({});
   const [onlineIsRolling, setOnlineIsRolling] = useState(false);
   const [onlineError, setOnlineError] = useState("");
+  const [trailOnlineRoom, setTrailOnlineRoom] = useState<NumberTrailRoom | null>(null);
+  const [trailOnlinePlayerId, setTrailOnlinePlayerId] = useState<PlayerId | null>(null);
+  const [trailOnlineIsRolling, setTrailOnlineIsRolling] = useState(false);
+  const [trailOnlineError, setTrailOnlineError] = useState("");
   const onlineRollingRef = useRef(false);
   const onlineResultTimer = useRef<number | undefined>();
+  const trailOnlineRollingRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(game));
@@ -107,6 +117,18 @@ export function App() {
         onlineRollingRef.current = false;
       }, onlineResultHoldMs);
     });
+    nextSocket.on("number-trail-room-state", (room: NumberTrailRoom) => {
+      if (!trailOnlineRollingRef.current) setTrailOnlineRoom(room);
+    });
+    nextSocket.on("number-trail-roll-start", () => {
+      trailOnlineRollingRef.current = true;
+      setTrailOnlineIsRolling(true);
+    });
+    nextSocket.on("number-trail-roll-result", ({ room }: { playerId: PlayerId; roll: number; room: NumberTrailRoom }) => {
+      setTrailOnlineRoom(room);
+      setTrailOnlineIsRolling(false);
+      trailOnlineRollingRef.current = false;
+    });
 
     return () => {
       window.clearTimeout(onlineResultTimer.current);
@@ -120,6 +142,8 @@ export function App() {
         ? "/dice-duel"
         : nextRoute === "number-trail"
           ? "/number-trail"
+        : nextRoute === "number-trail-room"
+          ? `/number-trail/room/${roomId ?? ""}`
         : nextRoute === "online-room"
           ? `/dice-duel/room/${roomId ?? ""}`
           : "/";
@@ -234,6 +258,52 @@ export function App() {
     );
   };
 
+  const createNumberTrailOnlineRoom = (playerName: string) => {
+    if (!socket) {
+      setTrailOnlineError("Online server is not connected");
+      return;
+    }
+    socket.emit(
+      "create-number-trail-room",
+      { playerName },
+      (response: { ok: boolean; error?: string; room?: NumberTrailRoom; playerId?: PlayerId }) => {
+        if (!response.ok || !response.room || !response.playerId) {
+          setTrailOnlineError(response.error ?? "Could not create room");
+          return;
+        }
+        setTrailOnlineError("");
+        setTrailOnlineRoom(response.room);
+        setTrailOnlinePlayerId(response.playerId);
+        setTrailOnlineIsRolling(false);
+        trailOnlineRollingRef.current = false;
+        navigate("number-trail-room", response.room.id);
+      },
+    );
+  };
+
+  const joinNumberTrailOnlineRoom = (roomId: string, playerName: string) => {
+    if (!socket) {
+      setTrailOnlineError("Online server is not connected");
+      return;
+    }
+    socket.emit(
+      "join-number-trail-room",
+      { roomId, playerName },
+      (response: { ok: boolean; error?: string; room?: NumberTrailRoom; playerId?: PlayerId }) => {
+        if (!response.ok || !response.room || !response.playerId) {
+          setTrailOnlineError(response.error ?? "Could not join room");
+          return;
+        }
+        setTrailOnlineError("");
+        setTrailOnlineRoom(response.room);
+        setTrailOnlinePlayerId(response.playerId);
+        setTrailOnlineIsRolling(false);
+        trailOnlineRollingRef.current = false;
+        navigate("number-trail-room", response.room.id);
+      },
+    );
+  };
+
   const changeMatchSettings = () => {
     setGame((current) => ({ ...current, setupComplete: false }));
     setDisplayRolls({});
@@ -271,7 +341,39 @@ export function App() {
   }
 
   if (route === "number-trail") {
-    return <NumberTrailGame onBack={() => navigate("games")} />;
+    return (
+      <NumberTrailGame
+        onBack={() => navigate("games")}
+        onlineError={trailOnlineError}
+        initialRoomId={routeRoomId}
+        onCreateOnline={createNumberTrailOnlineRoom}
+        onJoinOnline={joinNumberTrailOnlineRoom}
+      />
+    );
+  }
+
+  if (route === "number-trail-room" && trailOnlineRoom && trailOnlinePlayerId) {
+    return (
+      <NumberTrailGame
+        onBack={() => navigate("games")}
+        onlineRoom={trailOnlineRoom}
+        onlinePlayerId={trailOnlinePlayerId}
+        onlineIsRolling={trailOnlineIsRolling}
+        onRollOnline={() => {
+          if (!socket || trailOnlineIsRolling) return;
+          socket.emit(
+            "number-trail-roll-request",
+            { roomId: trailOnlineRoom.id },
+            (response: { ok: boolean; error?: string }) => {
+              if (!response.ok) setTrailOnlineError(response.error ?? "Could not roll");
+            },
+          );
+        }}
+        onRestartOnline={() => {
+          socket?.emit("restart-number-trail-room", { roomId: trailOnlineRoom.id });
+        }}
+      />
+    );
   }
 
   if (route === "online-room" && onlineRoom && onlinePlayerId) {
@@ -298,6 +400,18 @@ export function App() {
         onRollAnimationComplete={(roll) => {
           socket?.emit("submit-roll", { roomId: onlineRoom.id, roll });
         }}
+      />
+    );
+  }
+
+  if (route === "number-trail-room") {
+    return (
+      <NumberTrailGame
+        onBack={() => navigate("games")}
+        onlineError={trailOnlineError}
+        initialRoomId={routeRoomId}
+        onCreateOnline={createNumberTrailOnlineRoom}
+        onJoinOnline={joinNumberTrailOnlineRoom}
       />
     );
   }

@@ -940,6 +940,32 @@ h2 {
   gap: 12px;
 }
 
+.trail-room-chip {
+  min-height: 42px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(247, 201, 72, 0.22);
+  background: rgba(247, 201, 72, 0.08);
+  display: grid;
+  align-content: center;
+  gap: 2px;
+}
+
+.trail-room-chip strong {
+  color: #f7c948;
+  font-size: 0.9rem;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.trail-room-chip span {
+  color: #9aa4b2;
+  font-size: 0.66rem;
+  font-weight: 900;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
 .trail-scorebar {
   display: grid;
   grid-template-columns: minmax(150px, 0.72fr) 168px minmax(150px, 0.72fr);

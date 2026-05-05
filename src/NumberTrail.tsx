@@ -7,14 +7,14 @@ import { Group, MOUSE, TOUCH, Vector3 } from "three";
 type PlayerId = "p1" | "p2";
 type CameraMode = "rotate" | "pan";
 
-type TrailTile = {
+export type TrailTile = {
   index: number;
   value?: number;
   x: number;
   y: number;
 };
 
-type TrailState = {
+export type TrailState = {
   player1Name: string;
   player2Name: string;
   setupComplete: boolean;
@@ -32,6 +32,14 @@ type TrailState = {
   landSeq: number;
   burnTileIndex?: number;
   burnSeq: number;
+};
+
+export type NumberTrailRoom = {
+  id: string;
+  status: "waiting" | "active" | "finished";
+  players: Partial<Record<PlayerId, { id: PlayerId; name: string; socketId?: string }>>;
+  tiles: TrailTile[];
+  game: TrailState;
 };
 
 const trailLength = 30;
@@ -148,13 +156,39 @@ function findNearestForwardTile(tiles: TrailTile[], fromIndex: number, roll: num
   return bestIndex;
 }
 
-export function NumberTrailGame({ onBack }: { onBack: () => void }) {
-  const [tiles, setTiles] = useState<TrailTile[]>(() => createTrail());
-  const [state, setState] = useState<TrailState>(createInitialTrailState);
+export function NumberTrailGame({
+  onBack,
+  onlineRoom,
+  onlinePlayerId,
+  onlineError = "",
+  initialRoomId = "",
+  onlineIsRolling = false,
+  onCreateOnline,
+  onJoinOnline,
+  onRollOnline,
+  onRestartOnline,
+}: {
+  onBack: () => void;
+  onlineRoom?: NumberTrailRoom | null;
+  onlinePlayerId?: PlayerId | null;
+  onlineError?: string;
+  initialRoomId?: string;
+  onlineIsRolling?: boolean;
+  onCreateOnline?: (playerName: string) => void;
+  onJoinOnline?: (roomId: string, playerName: string) => void;
+  onRollOnline?: () => void;
+  onRestartOnline?: () => void;
+}) {
+  const isOnline = Boolean(onlineRoom && onlinePlayerId);
+  const [localTiles, setLocalTiles] = useState<TrailTile[]>(() => createTrail());
+  const [localState, setLocalState] = useState<TrailState>(createInitialTrailState);
   const [isRolling, setIsRolling] = useState(false);
   const [cameraMode, setCameraMode] = useState<CameraMode>("rotate");
   const [timerNow, setTimerNow] = useState(() => Date.now());
   const rollTimeoutRef = useRef<number>();
+  const tiles = onlineRoom?.tiles ?? localTiles;
+  const state = onlineRoom?.game ?? localState;
+  const rolling = isOnline ? onlineIsRolling : isRolling;
   const finishIndex = tiles.length - 1;
 
   useEffect(() => {
@@ -172,8 +206,8 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
   const startGame = (player1Name: string, player2Name: string) => {
     if (rollTimeoutRef.current) window.clearTimeout(rollTimeoutRef.current);
     setIsRolling(false);
-    setTiles(createTrail());
-    setState({
+    setLocalTiles(createTrail());
+    setLocalState({
       ...createInitialTrailState(),
       player1Name: player1Name.trim() || "Player 1",
       player2Name: player2Name.trim() || "Player 2",
@@ -185,10 +219,14 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
   };
 
   const resetGame = () => {
+    if (isOnline) {
+      onRestartOnline?.();
+      return;
+    }
     if (rollTimeoutRef.current) window.clearTimeout(rollTimeoutRef.current);
     setIsRolling(false);
-    setTiles(createTrail());
-    setState((current) => ({
+    setLocalTiles(createTrail());
+    setLocalState((current) => ({
       ...createInitialTrailState(),
       player1Name: current.player1Name,
       player2Name: current.player2Name,
@@ -200,12 +238,17 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
   };
 
   const roll = () => {
+    if (isOnline) {
+      if (onlineIsRolling || state.status === "finished") return;
+      onRollOnline?.();
+      return;
+    }
     if (isRolling || state.status === "finished") return;
     const player = state.currentPlayer;
     const rollValue = rollDie();
     const playerName = player === "p1" ? state.player1Name : state.player2Name;
 
-    setState((current) => ({
+    setLocalState((current) => ({
       ...current,
       lastRoll: undefined,
       landTileIndex: undefined,
@@ -215,7 +258,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
     setIsRolling(true);
 
     rollTimeoutRef.current = window.setTimeout(() => {
-      setState((current) => {
+      setLocalState((current) => {
         const currentIndex = current.positions[player];
         const nextIndex = findNearestTile(tiles, currentIndex, rollValue);
         const completedAt = Date.now();
@@ -251,12 +294,41 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
   };
 
   if (!state.setupComplete) {
-    return <NumberTrailSetup onBack={onBack} onStart={startGame} />;
+    return (
+      <NumberTrailSetup
+        onBack={onBack}
+        onStart={startGame}
+        onlineError={onlineError}
+        initialRoomId={initialRoomId}
+        onCreateOnline={onCreateOnline}
+        onJoinOnline={onJoinOnline}
+      />
+    );
   }
 
   const currentPlayerName = state.currentPlayer === "p1" ? state.player1Name : state.player2Name;
   const winnerName = state.winner === "p1" ? state.player1Name : state.player2Name;
   const elapsedTime = formatElapsedTime((state.finishedAt ?? timerNow) - (state.startedAt ?? timerNow));
+  const roomWaiting = onlineRoom?.status === "waiting";
+  const canRollOnline =
+    isOnline &&
+    onlineRoom?.status === "active" &&
+    state.status === "active" &&
+    state.currentPlayer === onlinePlayerId &&
+    !onlineIsRolling;
+  const buttonText = isOnline
+    ? roomWaiting
+      ? "Waiting..."
+      : state.status === "finished"
+        ? "Trail finished"
+        : onlineIsRolling
+          ? "Rolling..."
+          : state.currentPlayer === onlinePlayerId
+            ? "Your roll"
+            : "Opponent turn"
+    : state.status === "finished"
+      ? "Trail finished"
+      : `${currentPlayerName} roll`;
 
   return (
     <main className="trail-shell">
@@ -267,6 +339,12 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
             <h1>Number Trail</h1>
           </div>
           <div className="top-actions">
+            {isOnline && (
+              <div className="trail-room-chip" aria-label="Online room">
+                <strong>{onlineRoom?.id}</strong>
+                <span>{onlinePlayerId === "p1" ? "P1" : "P2"}</span>
+              </div>
+            )}
             <button className="icon-button" type="button" onClick={onBack} aria-label="Back to games">
               <ArrowLeft size={19} />
             </button>
@@ -279,7 +357,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
         <div className="trail-scorebar">
           <TrailPlayer name={state.player1Name} position={state.positions.p1} active={state.currentPlayer === "p1"} tone="warm" />
           <div className="trail-roll">
-            <TrailDice value={state.lastRoll} rolling={isRolling} />
+            <TrailDice value={state.lastRoll} rolling={rolling} />
             <TrailStats elapsedTime={elapsedTime} rollCount={state.rollCount} />
           </div>
           <TrailPlayer name={state.player2Name} position={state.positions.p2} active={state.currentPlayer === "p2"} tone="cool" />
@@ -312,7 +390,7 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
             player2Index={state.positions.p2}
             finishIndex={finishIndex}
             moveSeq={state.moveSeq}
-            activePlayer={state.status === "active" ? state.currentPlayer : undefined}
+            activePlayer={state.status === "active" && !roomWaiting ? state.currentPlayer : undefined}
             landTileIndex={state.landTileIndex}
             landSeq={state.landSeq}
             burnTileIndex={state.burnTileIndex}
@@ -322,23 +400,34 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
         </div>
 
         <div className="trail-action-row">
-          <p>{state.message}</p>
-          <button className="roll-button" type="button" onClick={roll} disabled={isRolling || state.status === "finished"}>
-            {state.status === "finished" ? "Trail finished" : `${currentPlayerName} roll`}
+          <p>{roomWaiting ? "Waiting for Player 2" : state.message}</p>
+          <button
+            className="roll-button"
+            type="button"
+            onClick={roll}
+            disabled={isOnline ? !canRollOnline : isRolling || state.status === "finished"}
+          >
+            {buttonText}
           </button>
         </div>
 
         {state.status === "finished" && (
-          <div className="winner-overlay win" role="dialog" aria-label="Number Trail winner">
-            <div className="confetti-strips" aria-hidden="true">
-              {Array.from({ length: 22 }).map((_, index) => (
-                <span key={index} />
-              ))}
-            </div>
+          <div
+            className={`winner-overlay ${isOnline && state.winner !== onlinePlayerId ? "lose" : "win"}`}
+            role="dialog"
+            aria-label="Number Trail winner"
+          >
+            {(!isOnline || state.winner === onlinePlayerId) && (
+              <div className="confetti-strips" aria-hidden="true">
+                {Array.from({ length: 22 }).map((_, index) => (
+                  <span key={index} />
+                ))}
+              </div>
+            )}
             <div className="winner-panel">
               <Sparkles size={28} />
-              <span>{winnerName}</span>
-              <strong>Win</strong>
+              <span>{isOnline ? (onlinePlayerId === "p1" ? state.player1Name : state.player2Name) : winnerName}</span>
+              <strong>{isOnline ? (state.winner === onlinePlayerId ? "You Win" : "You Lose") : "Win"}</strong>
               <button className="roll-button" type="button" onClick={resetGame}>
                 Reset game
               </button>
@@ -353,12 +442,21 @@ export function NumberTrailGame({ onBack }: { onBack: () => void }) {
 function NumberTrailSetup({
   onBack,
   onStart,
+  onlineError,
+  initialRoomId = "",
+  onCreateOnline,
+  onJoinOnline,
 }: {
   onBack: () => void;
   onStart: (player1Name: string, player2Name: string) => void;
+  onlineError?: string;
+  initialRoomId?: string;
+  onCreateOnline?: (playerName: string) => void;
+  onJoinOnline?: (roomId: string, playerName: string) => void;
 }) {
   const [player1Name, setPlayer1Name] = useState("Player 1");
   const [player2Name, setPlayer2Name] = useState("Player 2");
+  const [roomCode, setRoomCode] = useState(initialRoomId);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -391,6 +489,32 @@ function NumberTrailSetup({
           <Play size={18} fill="currentColor" />
           Start trail
         </button>
+        {(onCreateOnline || onJoinOnline) && (
+          <div className="online-panel">
+            <div>
+              <span className="eyebrow">online multiplayer</span>
+              <h2>Play on two devices</h2>
+            </div>
+            {onlineError && <p className="setup-error">{onlineError}</p>}
+            <div className="online-actions">
+              <button className="start-button" type="button" onClick={() => onCreateOnline?.(player1Name)}>
+                Create room
+              </button>
+              <label className="setup-field room-code-field">
+                <span>Room code</span>
+                <input
+                  value={roomCode}
+                  maxLength={8}
+                  placeholder="ABC123"
+                  onChange={(event) => setRoomCode(event.target.value.toUpperCase())}
+                />
+              </label>
+              <button className="ghost-button" type="button" onClick={() => onJoinOnline?.(roomCode, player2Name)}>
+                Join room
+              </button>
+            </div>
+          </div>
+        )}
       </form>
     </main>
   );
@@ -729,11 +853,18 @@ function TrailToken3D({
   const target = useMemo(() => {
     const [x, , z] = toBoardPosition(tiles[index], offset);
     return new Vector3(x, 0.72, z);
-  }, [index, offset, tiles]);
+  }, [index, offset, tiles[index]?.x, tiles[index]?.y]);
   const groupRef = useRef<Group>(null);
   const currentPosition = useRef(target.clone());
   const currentIndex = useRef(index);
   const path = useRef<Vector3[]>([]);
+  const tilesRef = useRef(tiles);
+  const offsetRef = useRef(offset);
+
+  useEffect(() => {
+    tilesRef.current = tiles;
+    offsetRef.current = offset;
+  }, [offset, tiles]);
 
   useEffect(() => {
     if (groupRef.current) {
@@ -751,14 +882,14 @@ function TrailToken3D({
     } else {
       const step = to > from ? 1 : -1;
       for (let tileIndex = from + step; step > 0 ? tileIndex <= to : tileIndex >= to; tileIndex += step) {
-        const [tileX, , tileZ] = toBoardPosition(tiles[tileIndex], offset);
+        const [tileX, , tileZ] = toBoardPosition(tilesRef.current[tileIndex], offsetRef.current);
         nextPath.push(new Vector3(tileX, 0.72, tileZ));
       }
     }
 
     path.current = nextPath;
     currentIndex.current = to;
-  }, [index, moveSeq, offset, target, tiles]);
+  }, [index, moveSeq, target]);
 
   useFrame(({ clock }, delta) => {
     const nextTarget = path.current[0] ?? target;
