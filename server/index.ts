@@ -88,7 +88,7 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: ["http://localhost:8200", "http://127.0.0.1:8200"],
+    origin: true,
     methods: ["GET", "POST"],
   },
 });

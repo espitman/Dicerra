@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
+    "dev": "vite",
     "server": "tsx server/index.ts",
     "dev:online": "tsx server/index.ts",
     "build": "tsc --noEmit && vite build",

@@ -1,8 +1,9 @@
-import { ArrowLeft, Crown, Dices, Hand, History, Map, Play, RefreshCcw, Sparkles, Swords } from "lucide-react";
+import { ArrowLeft, Crown, Dices, Hand, History, Map, Play, RefreshCcw, Sparkles, Swords, Trophy } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { DiceScene } from "./DiceScene";
 import { DiceTugGame, type DiceTugRoom } from "./DiceTug";
+import { NumberKnockoutGame } from "./NumberKnockout";
 import { NumberTrailGame, type NumberTrailRoom } from "./NumberTrail";
 import {
   GameState,
@@ -13,7 +14,9 @@ import {
 } from "./game";
 
 const storageKey = "dicerra.game.v1";
-const socketUrl = import.meta.env.VITE_SOCKET_URL ?? "http://localhost:8201";
+const socketUrl =
+  import.meta.env.VITE_SOCKET_URL ??
+  window.location.origin;
 const onlineResultHoldMs = 2000;
 type Route =
   | "games"
@@ -22,7 +25,8 @@ type Route =
   | "number-trail"
   | "number-trail-room"
   | "dice-tug"
-  | "dice-tug-room";
+  | "dice-tug-room"
+  | "number-knockout";
 
 type PublicRoom = {
   id: string;
@@ -37,6 +41,7 @@ function readRoute(): Route {
   if (window.location.pathname.startsWith("/dice-tug/room/")) return "dice-tug-room";
   if (window.location.pathname === "/number-trail") return "number-trail";
   if (window.location.pathname === "/dice-tug") return "dice-tug";
+  if (window.location.pathname === "/number-knockout") return "number-knockout";
   return window.location.pathname === "/dice-duel" ? "dice-duel" : "games";
 }
 
@@ -172,6 +177,8 @@ export function App() {
           ? "/number-trail"
         : nextRoute === "dice-tug"
           ? "/dice-tug"
+        : nextRoute === "number-knockout"
+          ? "/number-knockout"
         : nextRoute === "dice-tug-room"
           ? `/dice-tug/room/${roomId ?? ""}`
         : nextRoute === "number-trail-room"
@@ -415,6 +422,7 @@ export function App() {
         }}
         onSelectNumberTrail={() => navigate("number-trail")}
         onSelectDiceTug={() => navigate("dice-tug")}
+        onSelectNumberKnockout={() => navigate("number-knockout")}
       />
     );
   }
@@ -541,6 +549,10 @@ export function App() {
         onJoinOnline={joinDiceTugOnlineRoom}
       />
     );
+  }
+
+  if (route === "number-knockout") {
+    return <NumberKnockoutGame onBack={() => navigate("games")} />;
   }
 
   if (!game.setupComplete) {
@@ -795,10 +807,12 @@ function GameCatalog({
   onSelectDiceDuel,
   onSelectNumberTrail,
   onSelectDiceTug,
+  onSelectNumberKnockout,
 }: {
   onSelectDiceDuel: () => void;
   onSelectNumberTrail: () => void;
   onSelectDiceTug: () => void;
+  onSelectNumberKnockout: () => void;
 }) {
   return (
     <main className="catalog-shell">
@@ -862,6 +876,26 @@ function GameCatalog({
             <em>Pull one shared token to your exact finish.</em>
           </span>
           <span className="game-card-preview tug-preview" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+          <span className="game-card-action">
+            <Play size={18} fill="currentColor" />
+          </span>
+        </button>
+        <button className="game-card" type="button" onClick={onSelectNumberKnockout}>
+          <span className="game-card-icon">
+            <Trophy size={34} />
+          </span>
+          <span className="game-card-copy">
+            <strong>Number Knockout</strong>
+            <em>Clear cards while your lucky streak keeps the turn.</em>
+          </span>
+          <span className="game-card-preview knockout-preview" aria-hidden="true">
+            <i />
             <i />
             <i />
             <i />
