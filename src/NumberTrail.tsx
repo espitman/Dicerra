@@ -770,13 +770,13 @@ function TrailToken3D({
     if (!groupRef.current) return;
 
     if (shouldWiggle && path.current.length === 0) {
-      const wave = clock.elapsedTime * 3.2;
+      const wave = clock.elapsedTime * 3.8;
       groupRef.current.position.set(
-        currentPosition.current.x + Math.sin(wave) * 0.012,
-        currentPosition.current.y + Math.sin(wave * 1.15) * 0.018,
-        currentPosition.current.z + Math.cos(wave * 0.9) * 0.009,
+        currentPosition.current.x + Math.sin(wave) * 0.018,
+        currentPosition.current.y + Math.sin(wave * 1.15) * 0.026,
+        currentPosition.current.z + Math.cos(wave * 0.9) * 0.014,
       );
-      groupRef.current.rotation.set(0, 0, Math.sin(wave * 0.8) * 0.025);
+      groupRef.current.rotation.set(0, 0, Math.sin(wave * 0.8) * 0.038);
       return;
     }
 
