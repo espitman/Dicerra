@@ -2,7 +2,7 @@ import { ArrowLeft, Crown, Dices, Hand, History, Map, Play, RefreshCcw, Sparkles
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { DiceScene } from "./DiceScene";
-import { DiceTugGame } from "./DiceTug";
+import { DiceTugGame, type DiceTugRoom } from "./DiceTug";
 import { NumberTrailGame, type NumberTrailRoom } from "./NumberTrail";
 import {
   GameState,
@@ -15,7 +15,14 @@ import {
 const storageKey = "dicerra.game.v1";
 const socketUrl = import.meta.env.VITE_SOCKET_URL ?? "http://localhost:8201";
 const onlineResultHoldMs = 2000;
-type Route = "games" | "dice-duel" | "online-room" | "number-trail" | "number-trail-room" | "dice-tug";
+type Route =
+  | "games"
+  | "dice-duel"
+  | "online-room"
+  | "number-trail"
+  | "number-trail-room"
+  | "dice-tug"
+  | "dice-tug-room";
 
 type PublicRoom = {
   id: string;
@@ -27,6 +34,7 @@ type PublicRoom = {
 function readRoute(): Route {
   if (window.location.pathname.startsWith("/dice-duel/room/")) return "online-room";
   if (window.location.pathname.startsWith("/number-trail/room/")) return "number-trail-room";
+  if (window.location.pathname.startsWith("/dice-tug/room/")) return "dice-tug-room";
   if (window.location.pathname === "/number-trail") return "number-trail";
   if (window.location.pathname === "/dice-tug") return "dice-tug";
   return window.location.pathname === "/dice-duel" ? "dice-duel" : "games";
@@ -36,6 +44,7 @@ function readRouteRoomId() {
   return (
     window.location.pathname.match(/^\/dice-duel\/room\/([^/]+)/)?.[1]?.toUpperCase() ??
     window.location.pathname.match(/^\/number-trail\/room\/([^/]+)/)?.[1]?.toUpperCase() ??
+    window.location.pathname.match(/^\/dice-tug\/room\/([^/]+)/)?.[1]?.toUpperCase() ??
     ""
   );
 }
@@ -70,9 +79,14 @@ export function App() {
   const [trailOnlinePlayerId, setTrailOnlinePlayerId] = useState<PlayerId | null>(null);
   const [trailOnlineIsRolling, setTrailOnlineIsRolling] = useState(false);
   const [trailOnlineError, setTrailOnlineError] = useState("");
+  const [tugOnlineRoom, setTugOnlineRoom] = useState<DiceTugRoom | null>(null);
+  const [tugOnlinePlayerId, setTugOnlinePlayerId] = useState<PlayerId | null>(null);
+  const [tugOnlineIsRolling, setTugOnlineIsRolling] = useState(false);
+  const [tugOnlineError, setTugOnlineError] = useState("");
   const onlineRollingRef = useRef(false);
   const onlineResultTimer = useRef<number | undefined>();
   const trailOnlineRollingRef = useRef(false);
+  const tugOnlineRollingRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(game));
@@ -131,6 +145,18 @@ export function App() {
       setTrailOnlineIsRolling(false);
       trailOnlineRollingRef.current = false;
     });
+    nextSocket.on("dice-tug-room-state", (room: DiceTugRoom) => {
+      if (!tugOnlineRollingRef.current) setTugOnlineRoom(room);
+    });
+    nextSocket.on("dice-tug-roll-start", () => {
+      tugOnlineRollingRef.current = true;
+      setTugOnlineIsRolling(true);
+    });
+    nextSocket.on("dice-tug-roll-result", ({ room }: { playerId: PlayerId; roll: number; room: DiceTugRoom }) => {
+      setTugOnlineRoom(room);
+      setTugOnlineIsRolling(false);
+      tugOnlineRollingRef.current = false;
+    });
 
     return () => {
       window.clearTimeout(onlineResultTimer.current);
@@ -146,6 +172,8 @@ export function App() {
           ? "/number-trail"
         : nextRoute === "dice-tug"
           ? "/dice-tug"
+        : nextRoute === "dice-tug-room"
+          ? `/dice-tug/room/${roomId ?? ""}`
         : nextRoute === "number-trail-room"
           ? `/number-trail/room/${roomId ?? ""}`
         : nextRoute === "online-room"
@@ -308,6 +336,52 @@ export function App() {
     );
   };
 
+  const createDiceTugOnlineRoom = (playerName: string) => {
+    if (!socket) {
+      setTugOnlineError("Online server is not connected");
+      return;
+    }
+    socket.emit(
+      "create-dice-tug-room",
+      { playerName },
+      (response: { ok: boolean; error?: string; room?: DiceTugRoom; playerId?: PlayerId }) => {
+        if (!response.ok || !response.room || !response.playerId) {
+          setTugOnlineError(response.error ?? "Could not create room");
+          return;
+        }
+        setTugOnlineError("");
+        setTugOnlineRoom(response.room);
+        setTugOnlinePlayerId(response.playerId);
+        setTugOnlineIsRolling(false);
+        tugOnlineRollingRef.current = false;
+        navigate("dice-tug-room", response.room.id);
+      },
+    );
+  };
+
+  const joinDiceTugOnlineRoom = (roomId: string, playerName: string) => {
+    if (!socket) {
+      setTugOnlineError("Online server is not connected");
+      return;
+    }
+    socket.emit(
+      "join-dice-tug-room",
+      { roomId, playerName },
+      (response: { ok: boolean; error?: string; room?: DiceTugRoom; playerId?: PlayerId }) => {
+        if (!response.ok || !response.room || !response.playerId) {
+          setTugOnlineError(response.error ?? "Could not join room");
+          return;
+        }
+        setTugOnlineError("");
+        setTugOnlineRoom(response.room);
+        setTugOnlinePlayerId(response.playerId);
+        setTugOnlineIsRolling(false);
+        tugOnlineRollingRef.current = false;
+        navigate("dice-tug-room", response.room.id);
+      },
+    );
+  };
+
   const changeMatchSettings = () => {
     setGame((current) => ({ ...current, setupComplete: false }));
     setDisplayRolls({});
@@ -422,7 +496,51 @@ export function App() {
   }
 
   if (route === "dice-tug") {
-    return <DiceTugGame onBack={() => navigate("games")} />;
+    return (
+      <DiceTugGame
+        onBack={() => navigate("games")}
+        onlineError={tugOnlineError}
+        initialRoomId={routeRoomId}
+        onCreateOnline={createDiceTugOnlineRoom}
+        onJoinOnline={joinDiceTugOnlineRoom}
+      />
+    );
+  }
+
+  if (route === "dice-tug-room" && tugOnlineRoom && tugOnlinePlayerId) {
+    return (
+      <DiceTugGame
+        onBack={() => navigate("games")}
+        onlineRoom={tugOnlineRoom}
+        onlinePlayerId={tugOnlinePlayerId}
+        onlineIsRolling={tugOnlineIsRolling}
+        onRollOnline={() => {
+          if (!socket || tugOnlineIsRolling) return;
+          socket.emit(
+            "dice-tug-roll-request",
+            { roomId: tugOnlineRoom.id },
+            (response: { ok: boolean; error?: string }) => {
+              if (!response.ok) setTugOnlineError(response.error ?? "Could not roll");
+            },
+          );
+        }}
+        onRestartOnline={() => {
+          socket?.emit("restart-dice-tug-room", { roomId: tugOnlineRoom.id });
+        }}
+      />
+    );
+  }
+
+  if (route === "dice-tug-room") {
+    return (
+      <DiceTugGame
+        onBack={() => navigate("games")}
+        onlineError={tugOnlineError}
+        initialRoomId={routeRoomId}
+        onCreateOnline={createDiceTugOnlineRoom}
+        onJoinOnline={joinDiceTugOnlineRoom}
+      />
+    );
   }
 
   if (!game.setupComplete) {

@@ -6,7 +6,7 @@ import { Group, Vector3 } from "three";
 
 type PlayerId = "p1" | "p2";
 
-type TugState = {
+export type TugState = {
   player1Name: string;
   player2Name: string;
   setupComplete: boolean;
@@ -20,6 +20,13 @@ type TugState = {
   rollCount: number;
   landPosition?: number;
   landSeq: number;
+};
+
+export type DiceTugRoom = {
+  id: string;
+  status: "waiting" | "active" | "finished";
+  players: Partial<Record<PlayerId, { id: PlayerId; name: string; socketId?: string }>>;
+  game: TugState;
 };
 
 const finishDistance = 7;
@@ -68,10 +75,35 @@ function applyTugRoll(state: TugState, roll: number): TugState {
   };
 }
 
-export function DiceTugGame({ onBack }: { onBack: () => void }) {
-  const [state, setState] = useState<TugState>(createInitialTugState);
+export function DiceTugGame({
+  onBack,
+  onlineRoom,
+  onlinePlayerId,
+  onlineError = "",
+  initialRoomId = "",
+  onlineIsRolling = false,
+  onCreateOnline,
+  onJoinOnline,
+  onRollOnline,
+  onRestartOnline,
+}: {
+  onBack: () => void;
+  onlineRoom?: DiceTugRoom | null;
+  onlinePlayerId?: PlayerId | null;
+  onlineError?: string;
+  initialRoomId?: string;
+  onlineIsRolling?: boolean;
+  onCreateOnline?: (playerName: string) => void;
+  onJoinOnline?: (roomId: string, playerName: string) => void;
+  onRollOnline?: () => void;
+  onRestartOnline?: () => void;
+}) {
+  const isOnline = Boolean(onlineRoom && onlinePlayerId);
+  const [localState, setLocalState] = useState<TugState>(createInitialTugState);
   const [isRolling, setIsRolling] = useState(false);
   const rollTimeoutRef = useRef<number>();
+  const state = onlineRoom?.game ?? localState;
+  const rolling = isOnline ? onlineIsRolling : isRolling;
 
   useEffect(() => {
     return () => {
@@ -82,7 +114,7 @@ export function DiceTugGame({ onBack }: { onBack: () => void }) {
   const startGame = (player1Name: string, player2Name: string) => {
     if (rollTimeoutRef.current) window.clearTimeout(rollTimeoutRef.current);
     setIsRolling(false);
-    setState({
+    setLocalState({
       ...createInitialTugState(),
       player1Name: player1Name.trim() || "Player 1",
       player2Name: player2Name.trim() || "Player 2",
@@ -92,9 +124,13 @@ export function DiceTugGame({ onBack }: { onBack: () => void }) {
   };
 
   const resetGame = () => {
+    if (isOnline) {
+      onRestartOnline?.();
+      return;
+    }
     if (rollTimeoutRef.current) window.clearTimeout(rollTimeoutRef.current);
     setIsRolling(false);
-    setState((current) => ({
+    setLocalState((current) => ({
       ...createInitialTugState(),
       player1Name: current.player1Name,
       player2Name: current.player2Name,
@@ -104,11 +140,16 @@ export function DiceTugGame({ onBack }: { onBack: () => void }) {
   };
 
   const roll = () => {
+    if (isOnline) {
+      if (onlineIsRolling || state.status === "finished") return;
+      onRollOnline?.();
+      return;
+    }
     if (isRolling || state.status === "finished") return;
     const rollValue = rollDie();
     const playerName = state.currentPlayer === "p1" ? state.player1Name : state.player2Name;
 
-    setState((current) => ({
+    setLocalState((current) => ({
       ...current,
       lastRoll: undefined,
       landPosition: undefined,
@@ -117,20 +158,51 @@ export function DiceTugGame({ onBack }: { onBack: () => void }) {
     setIsRolling(true);
 
     rollTimeoutRef.current = window.setTimeout(() => {
-      setState((current) => applyTugRoll(current, rollValue));
+      setLocalState((current) => applyTugRoll(current, rollValue));
       setIsRolling(false);
       rollTimeoutRef.current = undefined;
     }, 920);
   };
 
   if (!state.setupComplete) {
-    return <DiceTugSetup onBack={onBack} onStart={startGame} />;
+    return (
+      <DiceTugSetup
+        onBack={onBack}
+        onStart={startGame}
+        onlineError={onlineError}
+        initialRoomId={initialRoomId}
+        onCreateOnline={onCreateOnline}
+        onJoinOnline={onJoinOnline}
+      />
+    );
   }
 
   const currentPlayerName = state.currentPlayer === "p1" ? state.player1Name : state.player2Name;
   const winnerName = state.winner === "p1" ? state.player1Name : state.player2Name;
   const activeDirection = state.currentPlayer === "p1" ? -1 : 1;
   const spacesToFinish = Math.abs(activeDirection * finishDistance - state.position);
+  const roomWaiting = onlineRoom?.status === "waiting";
+  const canRollOnline =
+    isOnline &&
+    onlineRoom?.status === "active" &&
+    state.status === "active" &&
+    state.currentPlayer === onlinePlayerId &&
+    !onlineIsRolling;
+  const buttonText = isOnline
+    ? roomWaiting
+      ? "Waiting..."
+      : state.status === "finished"
+        ? "Tug finished"
+        : onlineIsRolling
+          ? "Rolling..."
+          : state.currentPlayer === onlinePlayerId
+            ? "Your roll"
+            : "Opponent turn"
+    : state.status === "finished"
+      ? "Tug finished"
+      : isRolling
+        ? "Rolling..."
+        : `${currentPlayerName} roll`;
 
   return (
     <main className="tug-shell">
@@ -141,6 +213,12 @@ export function DiceTugGame({ onBack }: { onBack: () => void }) {
             <h1>Dice Tug</h1>
           </div>
           <div className="top-actions">
+            {isOnline && (
+              <div className="trail-room-chip" aria-label="Online room">
+                <strong>{onlineRoom?.id}</strong>
+                <span>{onlinePlayerId === "p1" ? "P1" : "P2"}</span>
+              </div>
+            )}
             <button className="icon-button" type="button" onClick={onBack} aria-label="Back to games">
               <ArrowLeft size={19} />
             </button>
@@ -153,7 +231,7 @@ export function DiceTugGame({ onBack }: { onBack: () => void }) {
         <div className="tug-scorebar">
           <TugPlayer name={state.player1Name} active={state.currentPlayer === "p1"} tone="warm" side="left" />
           <div className="trail-roll tug-roll">
-            <TugDice value={state.lastRoll} rolling={isRolling} />
+            <TugDice value={state.lastRoll} rolling={rolling} />
             <div className="trail-stats" aria-label="Game stats">
               <span>{spacesToFinish}</span>
               <span>{state.rollCount} rolls</span>
@@ -166,30 +244,41 @@ export function DiceTugGame({ onBack }: { onBack: () => void }) {
           <TugBoard3D
             position={state.position}
             moveSeq={state.moveSeq}
-            activePlayer={state.status === "active" ? state.currentPlayer : undefined}
+            activePlayer={state.status === "active" && !roomWaiting ? state.currentPlayer : undefined}
             landPosition={state.landPosition}
             landSeq={state.landSeq}
           />
         </div>
 
         <div className="trail-action-row">
-          <p>{state.message}</p>
-          <button className="roll-button" type="button" onClick={roll} disabled={isRolling || state.status === "finished"}>
-            {state.status === "finished" ? "Tug finished" : isRolling ? "Rolling..." : `${currentPlayerName} roll`}
+          <p>{roomWaiting ? "Waiting for Player 2" : state.message}</p>
+          <button
+            className="roll-button"
+            type="button"
+            onClick={roll}
+            disabled={isOnline ? !canRollOnline : isRolling || state.status === "finished"}
+          >
+            {buttonText}
           </button>
         </div>
 
         {state.status === "finished" && (
-          <div className="winner-overlay win" role="dialog" aria-label="Dice Tug winner">
-            <div className="confetti-strips" aria-hidden="true">
-              {Array.from({ length: 22 }).map((_, index) => (
-                <span key={index} />
-              ))}
-            </div>
+          <div
+            className={`winner-overlay ${isOnline && state.winner !== onlinePlayerId ? "lose" : "win"}`}
+            role="dialog"
+            aria-label="Dice Tug winner"
+          >
+            {(!isOnline || state.winner === onlinePlayerId) && (
+              <div className="confetti-strips" aria-hidden="true">
+                {Array.from({ length: 22 }).map((_, index) => (
+                  <span key={index} />
+                ))}
+              </div>
+            )}
             <div className="winner-panel">
               <Sparkles size={28} />
-              <span>{winnerName}</span>
-              <strong>Win</strong>
+              <span>{isOnline ? (onlinePlayerId === "p1" ? state.player1Name : state.player2Name) : winnerName}</span>
+              <strong>{isOnline ? (state.winner === onlinePlayerId ? "You Win" : "You Lose") : "Win"}</strong>
               <button className="roll-button" type="button" onClick={resetGame}>
                 Reset game
               </button>
@@ -204,12 +293,21 @@ export function DiceTugGame({ onBack }: { onBack: () => void }) {
 function DiceTugSetup({
   onBack,
   onStart,
+  onlineError,
+  initialRoomId = "",
+  onCreateOnline,
+  onJoinOnline,
 }: {
   onBack: () => void;
   onStart: (player1Name: string, player2Name: string) => void;
+  onlineError?: string;
+  initialRoomId?: string;
+  onCreateOnline?: (playerName: string) => void;
+  onJoinOnline?: (roomId: string, playerName: string) => void;
 }) {
   const [player1Name, setPlayer1Name] = useState("Player 1");
   const [player2Name, setPlayer2Name] = useState("Player 2");
+  const [roomCode, setRoomCode] = useState(initialRoomId);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -242,6 +340,32 @@ function DiceTugSetup({
           <Play size={18} fill="currentColor" />
           Start tug
         </button>
+        {(onCreateOnline || onJoinOnline) && (
+          <div className="online-panel">
+            <div>
+              <span className="eyebrow">online multiplayer</span>
+              <h2>Play on two devices</h2>
+            </div>
+            {onlineError && <p className="setup-error">{onlineError}</p>}
+            <div className="online-actions">
+              <button className="start-button" type="button" onClick={() => onCreateOnline?.(player1Name)}>
+                Create room
+              </button>
+              <label className="setup-field room-code-field">
+                <span>Room code</span>
+                <input
+                  value={roomCode}
+                  maxLength={8}
+                  placeholder="ABC123"
+                  onChange={(event) => setRoomCode(event.target.value.toUpperCase())}
+                />
+              </label>
+              <button className="ghost-button" type="button" onClick={() => onJoinOnline?.(roomCode, player2Name)}>
+                Join room
+              </button>
+            </div>
+          </div>
+        )}
       </form>
     </main>
   );

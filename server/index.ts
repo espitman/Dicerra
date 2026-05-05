@@ -58,6 +58,32 @@ type TrailRoom = {
   pendingRollTimer?: NodeJS.Timeout;
 };
 
+type TugState = {
+  player1Name: string;
+  player2Name: string;
+  setupComplete: boolean;
+  currentPlayer: PlayerId;
+  position: number;
+  lastRoll?: number;
+  message: string;
+  status: "active" | "finished";
+  winner?: PlayerId;
+  moveSeq: number;
+  rollCount: number;
+  landPosition?: number;
+  landSeq: number;
+};
+
+type TugRoom = {
+  id: string;
+  status: RoomStatus;
+  players: Partial<Record<PlayerId, PlayerSlot>>;
+  game: TugState;
+  createdAt: number;
+  pendingRollPlayer?: PlayerId;
+  pendingRollTimer?: NodeJS.Timeout;
+};
+
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
@@ -71,7 +97,10 @@ const rooms = new Map<string, Room>();
 const socketToRoom = new Map<string, { roomId: string; playerId: PlayerId }>();
 const trailRooms = new Map<string, TrailRoom>();
 const socketToTrailRoom = new Map<string, { roomId: string; playerId: PlayerId }>();
+const tugRooms = new Map<string, TugRoom>();
+const socketToTugRoom = new Map<string, { roomId: string; playerId: PlayerId }>();
 const trailLength = 30;
+const tugFinishDistance = 7;
 
 function createRoomId() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -236,8 +265,61 @@ function emitTrailRoom(room: TrailRoom) {
   io.to(room.id).emit("number-trail-room-state", publicTrailRoom(room));
 }
 
+function createInitialTugState(player1Name = "Player 1", player2Name = "Waiting..."): TugState {
+  return {
+    player1Name,
+    player2Name,
+    setupComplete: true,
+    currentPlayer: "p1",
+    position: 0,
+    message: `${player1Name} starts the tug`,
+    status: "active",
+    moveSeq: 0,
+    rollCount: 0,
+    landSeq: 0,
+  };
+}
+
+function applyTugRoll(room: TugRoom, player: PlayerId, roll: number) {
+  const current = room.game;
+  const direction = player === "p1" ? -1 : 1;
+  const targetFinish = direction * tugFinishDistance;
+  const rawPosition = current.position + direction * roll;
+  const nextPosition = direction < 0 ? Math.max(targetFinish, rawPosition) : Math.min(targetFinish, rawPosition);
+  const winner = nextPosition === targetFinish ? player : undefined;
+  const playerName = player === "p1" ? current.player1Name : current.player2Name;
+
+  room.game = {
+    ...current,
+    lastRoll: roll,
+    position: nextPosition,
+    moveSeq: current.moveSeq + 1,
+    landPosition: nextPosition,
+    landSeq: current.landSeq + 1,
+    currentPlayer: player === "p1" ? "p2" : "p1",
+    status: winner ? "finished" : "active",
+    winner,
+    rollCount: current.rollCount + 1,
+    message: winner ? `${playerName} pulled to finish` : `${playerName} pulled ${roll} spaces`,
+  };
+  room.status = room.game.status === "finished" ? "finished" : "active";
+}
+
+function publicTugRoom(room: TugRoom) {
+  return {
+    id: room.id,
+    status: room.status,
+    players: room.players,
+    game: room.game,
+  };
+}
+
+function emitTugRoom(room: TugRoom) {
+  io.to(room.id).emit("dice-tug-room-state", publicTugRoom(room));
+}
+
 app.get("/health", (_request, response) => {
-  response.json({ ok: true, rooms: rooms.size, trailRooms: trailRooms.size });
+  response.json({ ok: true, rooms: rooms.size, trailRooms: trailRooms.size, tugRooms: tugRooms.size });
 });
 
 io.on("connection", (socket) => {
@@ -504,6 +586,127 @@ io.on("connection", (socket) => {
     reply?.({ ok: true });
   });
 
+  socket.on(
+    "create-dice-tug-room",
+    (
+      payload: { playerName?: string },
+      reply: (response: { ok: boolean; error?: string; room?: ReturnType<typeof publicTugRoom>; playerId?: PlayerId }) => void,
+    ) => {
+      const roomId = createRoomId();
+      const playerName = payload.playerName?.trim().slice(0, 18) || "Player 1";
+      const room: TugRoom = {
+        id: roomId,
+        status: "waiting",
+        players: {
+          p1: { id: "p1", name: playerName, socketId: socket.id },
+        },
+        game: createInitialTugState(playerName, "Waiting..."),
+        createdAt: Date.now(),
+      };
+
+      tugRooms.set(roomId, room);
+      socketToTugRoom.set(socket.id, { roomId, playerId: "p1" });
+      socket.join(roomId);
+      reply({ ok: true, room: publicTugRoom(room), playerId: "p1" });
+      emitTugRoom(room);
+    },
+  );
+
+  socket.on(
+    "join-dice-tug-room",
+    (
+      payload: { roomId?: string; playerName?: string },
+      reply: (response: { ok: boolean; error?: string; room?: ReturnType<typeof publicTugRoom>; playerId?: PlayerId }) => void,
+    ) => {
+      const roomId = payload.roomId?.trim().toUpperCase();
+      const room = roomId ? tugRooms.get(roomId) : undefined;
+      if (!room) {
+        reply({ ok: false, error: "Room not found" });
+        return;
+      }
+      if (room.players.p2?.socketId) {
+        reply({ ok: false, error: "Room is full" });
+        return;
+      }
+
+      const playerName = payload.playerName?.trim().slice(0, 18) || "Player 2";
+      room.players.p2 = { id: "p2", name: playerName, socketId: socket.id };
+      room.status = "active";
+      room.game = createInitialTugState(room.players.p1?.name || "Player 1", playerName);
+      socketToTugRoom.set(socket.id, { roomId: room.id, playerId: "p2" });
+      socket.join(room.id);
+      reply({ ok: true, room: publicTugRoom(room), playerId: "p2" });
+      emitTugRoom(room);
+    },
+  );
+
+  socket.on("dice-tug-roll-request", (payload: { roomId?: string }, reply?: (response: { ok: boolean; error?: string }) => void) => {
+    const roomId = payload.roomId?.trim().toUpperCase();
+    const room = roomId ? tugRooms.get(roomId) : undefined;
+    const player = socketToTugRoom.get(socket.id);
+    if (!room || !player || player.roomId !== room.id) {
+      reply?.({ ok: false, error: "Room not found" });
+      return;
+    }
+    if (room.status !== "active" || room.game.status === "finished") {
+      reply?.({ ok: false, error: "Game is not active" });
+      return;
+    }
+    if (room.game.currentPlayer !== player.playerId) {
+      reply?.({ ok: false, error: "Not your turn" });
+      return;
+    }
+    if (room.pendingRollPlayer) {
+      reply?.({ ok: false, error: "Roll already in progress" });
+      return;
+    }
+
+    room.pendingRollPlayer = player.playerId;
+    room.game = {
+      ...room.game,
+      lastRoll: undefined,
+      landPosition: undefined,
+      message: `${player.playerId === "p1" ? room.game.player1Name : room.game.player2Name} is rolling`,
+    };
+    io.to(room.id).emit("dice-tug-roll-start", { playerId: player.playerId });
+    emitTugRoom(room);
+
+    room.pendingRollTimer = setTimeout(() => {
+      const activeRoom = tugRooms.get(room.id);
+      if (!activeRoom || activeRoom.pendingRollPlayer !== player.playerId) return;
+      const roll = Math.floor(Math.random() * 6) + 1;
+      applyTugRoll(activeRoom, player.playerId, roll);
+      activeRoom.pendingRollPlayer = undefined;
+      activeRoom.pendingRollTimer = undefined;
+      io.to(activeRoom.id).emit("dice-tug-roll-result", {
+        playerId: player.playerId,
+        roll,
+        room: publicTugRoom(activeRoom),
+      });
+      emitTugRoom(activeRoom);
+    }, 920);
+
+    reply?.({ ok: true });
+  });
+
+  socket.on("restart-dice-tug-room", (payload: { roomId?: string }, reply?: (response: { ok: boolean; error?: string }) => void) => {
+    const roomId = payload.roomId?.trim().toUpperCase();
+    const room = roomId ? tugRooms.get(roomId) : undefined;
+    if (!room) {
+      reply?.({ ok: false, error: "Room not found" });
+      return;
+    }
+    if (room.pendingRollTimer) {
+      clearTimeout(room.pendingRollTimer);
+    }
+    room.status = room.players.p2?.socketId ? "active" : "waiting";
+    room.pendingRollPlayer = undefined;
+    room.pendingRollTimer = undefined;
+    room.game = createInitialTugState(room.players.p1?.name || "Player 1", room.players.p2?.name || "Waiting...");
+    emitTugRoom(room);
+    reply?.({ ok: true });
+  });
+
   socket.on("disconnect", () => {
     const player = socketToRoom.get(socket.id);
     if (player) {
@@ -520,22 +723,42 @@ io.on("connection", (socket) => {
     }
 
     const trailPlayer = socketToTrailRoom.get(socket.id);
-    if (!trailPlayer) return;
-    const trailRoom = trailRooms.get(trailPlayer.roomId);
-    socketToTrailRoom.delete(socket.id);
-    if (!trailRoom) return;
+    if (trailPlayer) {
+      const trailRoom = trailRooms.get(trailPlayer.roomId);
+      socketToTrailRoom.delete(socket.id);
+      if (trailRoom) {
+        const trailSlot = trailRoom.players[trailPlayer.playerId];
+        if (trailSlot) {
+          trailSlot.socketId = undefined;
+        }
+        trailRoom.status = "waiting";
+        if (trailRoom.pendingRollTimer) {
+          clearTimeout(trailRoom.pendingRollTimer);
+          trailRoom.pendingRollTimer = undefined;
+          trailRoom.pendingRollPlayer = undefined;
+        }
+        emitTrailRoom(trailRoom);
+      }
+    }
 
-    const trailSlot = trailRoom.players[trailPlayer.playerId];
-    if (trailSlot) {
-      trailSlot.socketId = undefined;
+    const tugPlayer = socketToTugRoom.get(socket.id);
+    if (tugPlayer) {
+      const tugRoom = tugRooms.get(tugPlayer.roomId);
+      socketToTugRoom.delete(socket.id);
+      if (tugRoom) {
+        const tugSlot = tugRoom.players[tugPlayer.playerId];
+        if (tugSlot) {
+          tugSlot.socketId = undefined;
+        }
+        tugRoom.status = "waiting";
+        if (tugRoom.pendingRollTimer) {
+          clearTimeout(tugRoom.pendingRollTimer);
+          tugRoom.pendingRollTimer = undefined;
+          tugRoom.pendingRollPlayer = undefined;
+        }
+        emitTugRoom(tugRoom);
+      }
     }
-    trailRoom.status = "waiting";
-    if (trailRoom.pendingRollTimer) {
-      clearTimeout(trailRoom.pendingRollTimer);
-      trailRoom.pendingRollTimer = undefined;
-      trailRoom.pendingRollPlayer = undefined;
-    }
-    emitTrailRoom(trailRoom);
   });
 });
 
