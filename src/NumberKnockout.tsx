@@ -2,7 +2,7 @@ import { ArrowLeft, Dices, Play, RefreshCcw, Sparkles, UserRound } from "lucide-
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { PlayerId } from "./game";
 
-type KnockoutState = {
+export type KnockoutState = {
   player1Name: string;
   player2Name: string;
   setupComplete: boolean;
@@ -16,6 +16,13 @@ type KnockoutState = {
   winner?: PlayerId;
   rollCount: number;
   combo: number;
+};
+
+export type NumberKnockoutRoom = {
+  id: string;
+  status: "waiting" | "active" | "finished";
+  players: Partial<Record<PlayerId, { id: PlayerId; name: string; socketId?: string }>>;
+  game: KnockoutState;
 };
 
 const cardNumbers = [1, 2, 3, 4, 5, 6];
@@ -66,10 +73,35 @@ function applyKnockoutRoll(state: KnockoutState, roll: number): KnockoutState {
   };
 }
 
-export function NumberKnockoutGame({ onBack }: { onBack: () => void }) {
+export function NumberKnockoutGame({
+  onBack,
+  onlineRoom,
+  onlinePlayerId,
+  onlineError = "",
+  initialRoomId = "",
+  onlineIsRolling = false,
+  onCreateOnline,
+  onJoinOnline,
+  onRollOnline,
+  onRestartOnline,
+}: {
+  onBack: () => void;
+  onlineRoom?: NumberKnockoutRoom | null;
+  onlinePlayerId?: PlayerId | null;
+  onlineError?: string;
+  initialRoomId?: string;
+  onlineIsRolling?: boolean;
+  onCreateOnline?: (playerName: string) => void;
+  onJoinOnline?: (roomId: string, playerName: string) => void;
+  onRollOnline?: () => void;
+  onRestartOnline?: () => void;
+}) {
+  const isOnline = Boolean(onlineRoom && onlinePlayerId);
   const [state, setState] = useState<KnockoutState>(createInitialKnockoutState);
   const [isRolling, setIsRolling] = useState(false);
   const rollTimeoutRef = useRef<number>();
+  const gameState = onlineRoom?.game ?? state;
+  const rolling = isOnline ? onlineIsRolling : isRolling;
 
   useEffect(() => {
     return () => {
@@ -90,6 +122,10 @@ export function NumberKnockoutGame({ onBack }: { onBack: () => void }) {
   };
 
   const resetGame = () => {
+    if (isOnline) {
+      onRestartOnline?.();
+      return;
+    }
     if (rollTimeoutRef.current) window.clearTimeout(rollTimeoutRef.current);
     setIsRolling(false);
     setState((current) => ({
@@ -102,9 +138,14 @@ export function NumberKnockoutGame({ onBack }: { onBack: () => void }) {
   };
 
   const roll = () => {
-    if (isRolling || state.status === "finished") return;
+    if (isOnline) {
+      if (onlineIsRolling || gameState.status === "finished") return;
+      onRollOnline?.();
+      return;
+    }
+    if (isRolling || gameState.status === "finished") return;
     const rollValue = rollDie();
-    const playerName = state.currentPlayer === "p1" ? state.player1Name : state.player2Name;
+    const playerName = gameState.currentPlayer === "p1" ? gameState.player1Name : gameState.player2Name;
 
     setState((current) => ({
       ...current,
@@ -121,14 +162,45 @@ export function NumberKnockoutGame({ onBack }: { onBack: () => void }) {
     }, 920);
   };
 
-  if (!state.setupComplete) {
-    return <NumberKnockoutSetup onBack={onBack} onStart={startGame} />;
+  if (!gameState.setupComplete) {
+    return (
+      <NumberKnockoutSetup
+        onBack={onBack}
+        onStart={startGame}
+        onlineError={onlineError}
+        initialRoomId={initialRoomId}
+        onCreateOnline={onCreateOnline}
+        onJoinOnline={onJoinOnline}
+      />
+    );
   }
 
-  const currentPlayerName = state.currentPlayer === "p1" ? state.player1Name : state.player2Name;
-  const winnerName = state.winner === "p1" ? state.player1Name : state.player2Name;
-  const player1Left = cardNumbers.length - state.player1Cleared.length;
-  const player2Left = cardNumbers.length - state.player2Cleared.length;
+  const currentPlayerName = gameState.currentPlayer === "p1" ? gameState.player1Name : gameState.player2Name;
+  const winnerName = gameState.winner === "p1" ? gameState.player1Name : gameState.player2Name;
+  const player1Left = cardNumbers.length - gameState.player1Cleared.length;
+  const player2Left = cardNumbers.length - gameState.player2Cleared.length;
+  const roomWaiting = onlineRoom?.status === "waiting";
+  const canRollOnline =
+    isOnline &&
+    onlineRoom?.status === "active" &&
+    gameState.status === "active" &&
+    gameState.currentPlayer === onlinePlayerId &&
+    !onlineIsRolling;
+  const buttonText = isOnline
+    ? roomWaiting
+      ? "Waiting..."
+      : gameState.status === "finished"
+        ? "Finished"
+        : onlineIsRolling
+          ? "Rolling..."
+          : gameState.currentPlayer === onlinePlayerId
+            ? "Your roll"
+            : "Opponent turn"
+    : gameState.status === "finished"
+      ? "Finished"
+      : isRolling
+        ? "Rolling..."
+        : `${currentPlayerName} roll`;
 
   return (
     <main className="knockout-shell">
@@ -139,6 +211,12 @@ export function NumberKnockoutGame({ onBack }: { onBack: () => void }) {
             <h1>Number Knockout</h1>
           </div>
           <div className="top-actions">
+            {isOnline && (
+              <div className="trail-room-chip" aria-label="Online room">
+                <strong>{onlineRoom?.id}</strong>
+                <span>{onlinePlayerId === "p1" ? "P1" : "P2"}</span>
+              </div>
+            )}
             <button className="icon-button" type="button" onClick={onBack} aria-label="Back to games">
               <ArrowLeft size={19} />
             </button>
@@ -150,21 +228,21 @@ export function NumberKnockoutGame({ onBack }: { onBack: () => void }) {
 
         <div className="knockout-scorebar">
           <KnockoutPlayer
-            name={state.player1Name}
-            active={state.currentPlayer === "p1"}
+            name={gameState.player1Name}
+            active={gameState.currentPlayer === "p1"}
             tone="warm"
             left={player1Left}
           />
           <div className="trail-roll knockout-roll">
-            <KnockoutDice value={state.lastRoll} rolling={isRolling} />
+            <KnockoutDice value={gameState.lastRoll} rolling={rolling} />
             <div className="trail-stats" aria-label="Game stats">
-              <span>{state.combo} combo</span>
-              <span>{state.rollCount} rolls</span>
+              <span>{gameState.combo} combo</span>
+              <span>{gameState.rollCount} rolls</span>
             </div>
           </div>
           <KnockoutPlayer
-            name={state.player2Name}
-            active={state.currentPlayer === "p2"}
+            name={gameState.player2Name}
+            active={gameState.currentPlayer === "p2"}
             tone="cool"
             left={player2Left}
           />
@@ -172,51 +250,62 @@ export function NumberKnockoutGame({ onBack }: { onBack: () => void }) {
 
         <div className="knockout-table">
           <KnockoutHand
-            name={state.player1Name}
+            name={gameState.player1Name}
             tone="warm"
-            active={state.currentPlayer === "p1"}
-            cleared={state.player1Cleared}
-            lastRoll={state.lastRoll}
-            lastHit={state.lastHit}
-            isCurrent={state.currentPlayer === "p1"}
+            active={gameState.currentPlayer === "p1"}
+            cleared={gameState.player1Cleared}
+            lastRoll={gameState.lastRoll}
+            lastHit={gameState.lastHit}
+            isCurrent={gameState.currentPlayer === "p1"}
           />
           <div className="knockout-center">
-            <div className={`knockout-cup ${isRolling ? "rolling" : ""}`}>
+            <div className={`knockout-cup ${rolling ? "rolling" : ""}`}>
               <span />
               <Dices size={34} />
             </div>
-            <strong>{state.lastRoll ?? "-"}</strong>
-            <span>{state.lastHit === undefined ? "Roll" : state.lastHit ? "Hit" : "Miss"}</span>
+            <strong>{gameState.lastRoll ?? "-"}</strong>
+            <span>{gameState.lastHit === undefined ? "Roll" : gameState.lastHit ? "Hit" : "Miss"}</span>
           </div>
           <KnockoutHand
-            name={state.player2Name}
+            name={gameState.player2Name}
             tone="cool"
-            active={state.currentPlayer === "p2"}
-            cleared={state.player2Cleared}
-            lastRoll={state.lastRoll}
-            lastHit={state.lastHit}
-            isCurrent={state.currentPlayer === "p2"}
+            active={gameState.currentPlayer === "p2"}
+            cleared={gameState.player2Cleared}
+            lastRoll={gameState.lastRoll}
+            lastHit={gameState.lastHit}
+            isCurrent={gameState.currentPlayer === "p2"}
           />
         </div>
 
         <div className="trail-action-row">
-          <p>{state.message}</p>
-          <button className="roll-button" type="button" onClick={roll} disabled={isRolling || state.status === "finished"}>
-            {state.status === "finished" ? "Finished" : isRolling ? "Rolling..." : `${currentPlayerName} roll`}
+          <p>{roomWaiting ? "Waiting for Player 2" : gameState.message}</p>
+          <button
+            className="roll-button"
+            type="button"
+            onClick={roll}
+            disabled={isOnline ? !canRollOnline : isRolling || gameState.status === "finished"}
+          >
+            {buttonText}
           </button>
         </div>
 
-        {state.status === "finished" && (
-          <div className="winner-overlay win" role="dialog" aria-label="Number Knockout winner">
-            <div className="confetti-strips" aria-hidden="true">
-              {Array.from({ length: 22 }).map((_, index) => (
-                <span key={index} />
-              ))}
-            </div>
+        {gameState.status === "finished" && (
+          <div
+            className={`winner-overlay ${isOnline && gameState.winner !== onlinePlayerId ? "lose" : "win"}`}
+            role="dialog"
+            aria-label="Number Knockout winner"
+          >
+            {(!isOnline || gameState.winner === onlinePlayerId) && (
+              <div className="confetti-strips" aria-hidden="true">
+                {Array.from({ length: 22 }).map((_, index) => (
+                  <span key={index} />
+                ))}
+              </div>
+            )}
             <div className="winner-panel">
               <Sparkles size={28} />
-              <span>{winnerName}</span>
-              <strong>Win</strong>
+              <span>{isOnline ? (onlinePlayerId === "p1" ? gameState.player1Name : gameState.player2Name) : winnerName}</span>
+              <strong>{isOnline ? (gameState.winner === onlinePlayerId ? "You Win" : "You Lose") : "Win"}</strong>
               <button className="roll-button" type="button" onClick={resetGame}>
                 Reset game
               </button>
@@ -231,12 +320,21 @@ export function NumberKnockoutGame({ onBack }: { onBack: () => void }) {
 function NumberKnockoutSetup({
   onBack,
   onStart,
+  onlineError,
+  initialRoomId = "",
+  onCreateOnline,
+  onJoinOnline,
 }: {
   onBack: () => void;
   onStart: (player1Name: string, player2Name: string) => void;
+  onlineError?: string;
+  initialRoomId?: string;
+  onCreateOnline?: (playerName: string) => void;
+  onJoinOnline?: (roomId: string, playerName: string) => void;
 }) {
   const [player1Name, setPlayer1Name] = useState("Player 1");
   const [player2Name, setPlayer2Name] = useState("Player 2");
+  const [roomCode, setRoomCode] = useState(initialRoomId);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -269,6 +367,32 @@ function NumberKnockoutSetup({
           <Play size={18} fill="currentColor" />
           Start knockout
         </button>
+        {(onCreateOnline || onJoinOnline) && (
+          <div className="online-panel">
+            <div>
+              <span className="eyebrow">online multiplayer</span>
+              <h2>Play on two devices</h2>
+            </div>
+            {onlineError && <p className="setup-error">{onlineError}</p>}
+            <div className="online-actions">
+              <button className="start-button" type="button" onClick={() => onCreateOnline?.(player1Name)}>
+                Create room
+              </button>
+              <label className="setup-field room-code-field">
+                <span>Room code</span>
+                <input
+                  value={roomCode}
+                  maxLength={8}
+                  placeholder="ABC123"
+                  onChange={(event) => setRoomCode(event.target.value.toUpperCase())}
+                />
+              </label>
+              <button className="ghost-button" type="button" onClick={() => onJoinOnline?.(roomCode, player2Name)}>
+                Join room
+              </button>
+            </div>
+          </div>
+        )}
       </form>
     </main>
   );

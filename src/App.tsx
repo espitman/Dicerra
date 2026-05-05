@@ -3,7 +3,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { io, type Socket } from "socket.io-client";
 import { DiceScene } from "./DiceScene";
 import { DiceTugGame, type DiceTugRoom } from "./DiceTug";
-import { NumberKnockoutGame } from "./NumberKnockout";
+import { NumberKnockoutGame, type NumberKnockoutRoom } from "./NumberKnockout";
 import { NumberTrailGame, type NumberTrailRoom } from "./NumberTrail";
 import {
   GameState,
@@ -26,7 +26,8 @@ type Route =
   | "number-trail-room"
   | "dice-tug"
   | "dice-tug-room"
-  | "number-knockout";
+  | "number-knockout"
+  | "number-knockout-room";
 
 type PublicRoom = {
   id: string;
@@ -39,6 +40,7 @@ function readRoute(): Route {
   if (window.location.pathname.startsWith("/dice-duel/room/")) return "online-room";
   if (window.location.pathname.startsWith("/number-trail/room/")) return "number-trail-room";
   if (window.location.pathname.startsWith("/dice-tug/room/")) return "dice-tug-room";
+  if (window.location.pathname.startsWith("/number-knockout/room/")) return "number-knockout-room";
   if (window.location.pathname === "/number-trail") return "number-trail";
   if (window.location.pathname === "/dice-tug") return "dice-tug";
   if (window.location.pathname === "/number-knockout") return "number-knockout";
@@ -50,6 +52,7 @@ function readRouteRoomId() {
     window.location.pathname.match(/^\/dice-duel\/room\/([^/]+)/)?.[1]?.toUpperCase() ??
     window.location.pathname.match(/^\/number-trail\/room\/([^/]+)/)?.[1]?.toUpperCase() ??
     window.location.pathname.match(/^\/dice-tug\/room\/([^/]+)/)?.[1]?.toUpperCase() ??
+    window.location.pathname.match(/^\/number-knockout\/room\/([^/]+)/)?.[1]?.toUpperCase() ??
     ""
   );
 }
@@ -88,10 +91,15 @@ export function App() {
   const [tugOnlinePlayerId, setTugOnlinePlayerId] = useState<PlayerId | null>(null);
   const [tugOnlineIsRolling, setTugOnlineIsRolling] = useState(false);
   const [tugOnlineError, setTugOnlineError] = useState("");
+  const [knockoutOnlineRoom, setKnockoutOnlineRoom] = useState<NumberKnockoutRoom | null>(null);
+  const [knockoutOnlinePlayerId, setKnockoutOnlinePlayerId] = useState<PlayerId | null>(null);
+  const [knockoutOnlineIsRolling, setKnockoutOnlineIsRolling] = useState(false);
+  const [knockoutOnlineError, setKnockoutOnlineError] = useState("");
   const onlineRollingRef = useRef(false);
   const onlineResultTimer = useRef<number | undefined>();
   const trailOnlineRollingRef = useRef(false);
   const tugOnlineRollingRef = useRef(false);
+  const knockoutOnlineRollingRef = useRef(false);
 
   useEffect(() => {
     localStorage.setItem(storageKey, JSON.stringify(game));
@@ -162,6 +170,18 @@ export function App() {
       setTugOnlineIsRolling(false);
       tugOnlineRollingRef.current = false;
     });
+    nextSocket.on("number-knockout-room-state", (room: NumberKnockoutRoom) => {
+      if (!knockoutOnlineRollingRef.current) setKnockoutOnlineRoom(room);
+    });
+    nextSocket.on("number-knockout-roll-start", () => {
+      knockoutOnlineRollingRef.current = true;
+      setKnockoutOnlineIsRolling(true);
+    });
+    nextSocket.on("number-knockout-roll-result", ({ room }: { playerId: PlayerId; roll: number; room: NumberKnockoutRoom }) => {
+      setKnockoutOnlineRoom(room);
+      setKnockoutOnlineIsRolling(false);
+      knockoutOnlineRollingRef.current = false;
+    });
 
     return () => {
       window.clearTimeout(onlineResultTimer.current);
@@ -179,6 +199,8 @@ export function App() {
           ? "/dice-tug"
         : nextRoute === "number-knockout"
           ? "/number-knockout"
+        : nextRoute === "number-knockout-room"
+          ? `/number-knockout/room/${roomId ?? ""}`
         : nextRoute === "dice-tug-room"
           ? `/dice-tug/room/${roomId ?? ""}`
         : nextRoute === "number-trail-room"
@@ -389,6 +411,52 @@ export function App() {
     );
   };
 
+  const createNumberKnockoutOnlineRoom = (playerName: string) => {
+    if (!socket) {
+      setKnockoutOnlineError("Online server is not connected");
+      return;
+    }
+    socket.emit(
+      "create-number-knockout-room",
+      { playerName },
+      (response: { ok: boolean; error?: string; room?: NumberKnockoutRoom; playerId?: PlayerId }) => {
+        if (!response.ok || !response.room || !response.playerId) {
+          setKnockoutOnlineError(response.error ?? "Could not create room");
+          return;
+        }
+        setKnockoutOnlineError("");
+        setKnockoutOnlineRoom(response.room);
+        setKnockoutOnlinePlayerId(response.playerId);
+        setKnockoutOnlineIsRolling(false);
+        knockoutOnlineRollingRef.current = false;
+        navigate("number-knockout-room", response.room.id);
+      },
+    );
+  };
+
+  const joinNumberKnockoutOnlineRoom = (roomId: string, playerName: string) => {
+    if (!socket) {
+      setKnockoutOnlineError("Online server is not connected");
+      return;
+    }
+    socket.emit(
+      "join-number-knockout-room",
+      { roomId, playerName },
+      (response: { ok: boolean; error?: string; room?: NumberKnockoutRoom; playerId?: PlayerId }) => {
+        if (!response.ok || !response.room || !response.playerId) {
+          setKnockoutOnlineError(response.error ?? "Could not join room");
+          return;
+        }
+        setKnockoutOnlineError("");
+        setKnockoutOnlineRoom(response.room);
+        setKnockoutOnlinePlayerId(response.playerId);
+        setKnockoutOnlineIsRolling(false);
+        knockoutOnlineRollingRef.current = false;
+        navigate("number-knockout-room", response.room.id);
+      },
+    );
+  };
+
   const changeMatchSettings = () => {
     setGame((current) => ({ ...current, setupComplete: false }));
     setDisplayRolls({});
@@ -552,7 +620,51 @@ export function App() {
   }
 
   if (route === "number-knockout") {
-    return <NumberKnockoutGame onBack={() => navigate("games")} />;
+    return (
+      <NumberKnockoutGame
+        onBack={() => navigate("games")}
+        onlineError={knockoutOnlineError}
+        initialRoomId={routeRoomId}
+        onCreateOnline={createNumberKnockoutOnlineRoom}
+        onJoinOnline={joinNumberKnockoutOnlineRoom}
+      />
+    );
+  }
+
+  if (route === "number-knockout-room" && knockoutOnlineRoom && knockoutOnlinePlayerId) {
+    return (
+      <NumberKnockoutGame
+        onBack={() => navigate("games")}
+        onlineRoom={knockoutOnlineRoom}
+        onlinePlayerId={knockoutOnlinePlayerId}
+        onlineIsRolling={knockoutOnlineIsRolling}
+        onRollOnline={() => {
+          if (!socket || knockoutOnlineIsRolling) return;
+          socket.emit(
+            "number-knockout-roll-request",
+            { roomId: knockoutOnlineRoom.id },
+            (response: { ok: boolean; error?: string }) => {
+              if (!response.ok) setKnockoutOnlineError(response.error ?? "Could not roll");
+            },
+          );
+        }}
+        onRestartOnline={() => {
+          socket?.emit("restart-number-knockout-room", { roomId: knockoutOnlineRoom.id });
+        }}
+      />
+    );
+  }
+
+  if (route === "number-knockout-room") {
+    return (
+      <NumberKnockoutGame
+        onBack={() => navigate("games")}
+        onlineError={knockoutOnlineError}
+        initialRoomId={routeRoomId}
+        onCreateOnline={createNumberKnockoutOnlineRoom}
+        onJoinOnline={joinNumberKnockoutOnlineRoom}
+      />
+    );
   }
 
   if (!game.setupComplete) {

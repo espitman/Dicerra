@@ -84,6 +84,32 @@ type TugRoom = {
   pendingRollTimer?: NodeJS.Timeout;
 };
 
+type KnockoutState = {
+  player1Name: string;
+  player2Name: string;
+  setupComplete: boolean;
+  currentPlayer: PlayerId;
+  player1Cleared: number[];
+  player2Cleared: number[];
+  lastRoll?: number;
+  lastHit?: boolean;
+  message: string;
+  status: "active" | "finished";
+  winner?: PlayerId;
+  rollCount: number;
+  combo: number;
+};
+
+type KnockoutRoom = {
+  id: string;
+  status: RoomStatus;
+  players: Partial<Record<PlayerId, PlayerSlot>>;
+  game: KnockoutState;
+  createdAt: number;
+  pendingRollPlayer?: PlayerId;
+  pendingRollTimer?: NodeJS.Timeout;
+};
+
 const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
@@ -99,8 +125,11 @@ const trailRooms = new Map<string, TrailRoom>();
 const socketToTrailRoom = new Map<string, { roomId: string; playerId: PlayerId }>();
 const tugRooms = new Map<string, TugRoom>();
 const socketToTugRoom = new Map<string, { roomId: string; playerId: PlayerId }>();
+const knockoutRooms = new Map<string, KnockoutRoom>();
+const socketToKnockoutRoom = new Map<string, { roomId: string; playerId: PlayerId }>();
 const trailLength = 30;
 const tugFinishDistance = 7;
+const knockoutCards = [1, 2, 3, 4, 5, 6];
 
 function createRoomId() {
   return Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -318,8 +347,71 @@ function emitTugRoom(room: TugRoom) {
   io.to(room.id).emit("dice-tug-room-state", publicTugRoom(room));
 }
 
+function createInitialKnockoutState(player1Name = "Player 1", player2Name = "Waiting..."): KnockoutState {
+  return {
+    player1Name,
+    player2Name,
+    setupComplete: true,
+    currentPlayer: "p1",
+    player1Cleared: [],
+    player2Cleared: [],
+    message: `${player1Name} starts`,
+    status: "active",
+    rollCount: 0,
+    combo: 0,
+  };
+}
+
+function applyKnockoutRoll(room: KnockoutRoom, player: PlayerId, roll: number) {
+  const current = room.game;
+  const currentCleared = player === "p1" ? current.player1Cleared : current.player2Cleared;
+  const playerName = player === "p1" ? current.player1Name : current.player2Name;
+  const hit = !currentCleared.includes(roll);
+  const nextCleared = hit ? [...currentCleared, roll].sort((a, b) => a - b) : currentCleared;
+  const winner = hit && nextCleared.length === knockoutCards.length ? player : undefined;
+  const nextPlayer = hit ? player : player === "p1" ? "p2" : "p1";
+
+  room.game = {
+    ...current,
+    player1Cleared: player === "p1" ? nextCleared : current.player1Cleared,
+    player2Cleared: player === "p2" ? nextCleared : current.player2Cleared,
+    currentPlayer: winner ? player : nextPlayer,
+    lastRoll: roll,
+    lastHit: hit,
+    rollCount: current.rollCount + 1,
+    combo: hit ? current.combo + 1 : 0,
+    status: winner ? "finished" : "active",
+    winner,
+    message: winner
+      ? `${playerName} cleared the last card`
+      : hit
+        ? `${playerName} knocked out ${roll}. Roll again`
+        : `${playerName} already cleared ${roll}. Turn changed`,
+  };
+  room.status = room.game.status === "finished" ? "finished" : "active";
+}
+
+function publicKnockoutRoom(room: KnockoutRoom) {
+  return {
+    id: room.id,
+    status: room.status,
+    players: room.players,
+    game: room.game,
+  };
+}
+
+function emitKnockoutRoom(room: KnockoutRoom) {
+  io.to(room.id).emit("number-knockout-room-state", publicKnockoutRoom(room));
+}
+
 app.get("/health", (_request, response) => {
-  response.json({ ok: true, rooms: rooms.size, trailRooms: trailRooms.size, tugRooms: tugRooms.size });
+  response.json({
+    ok: true,
+    rooms: rooms.size,
+    trailRooms: trailRooms.size,
+    tugRooms: tugRooms.size,
+    knockoutRooms: knockoutRooms.size,
+  });
 });
 
 io.on("connection", (socket) => {
@@ -707,6 +799,127 @@ io.on("connection", (socket) => {
     reply?.({ ok: true });
   });
 
+  socket.on(
+    "create-number-knockout-room",
+    (
+      payload: { playerName?: string },
+      reply: (response: { ok: boolean; error?: string; room?: ReturnType<typeof publicKnockoutRoom>; playerId?: PlayerId }) => void,
+    ) => {
+      const roomId = createRoomId();
+      const playerName = payload.playerName?.trim().slice(0, 18) || "Player 1";
+      const room: KnockoutRoom = {
+        id: roomId,
+        status: "waiting",
+        players: {
+          p1: { id: "p1", name: playerName, socketId: socket.id },
+        },
+        game: createInitialKnockoutState(playerName, "Waiting..."),
+        createdAt: Date.now(),
+      };
+
+      knockoutRooms.set(roomId, room);
+      socketToKnockoutRoom.set(socket.id, { roomId, playerId: "p1" });
+      socket.join(roomId);
+      reply({ ok: true, room: publicKnockoutRoom(room), playerId: "p1" });
+      emitKnockoutRoom(room);
+    },
+  );
+
+  socket.on(
+    "join-number-knockout-room",
+    (
+      payload: { roomId?: string; playerName?: string },
+      reply: (response: { ok: boolean; error?: string; room?: ReturnType<typeof publicKnockoutRoom>; playerId?: PlayerId }) => void,
+    ) => {
+      const roomId = payload.roomId?.trim().toUpperCase();
+      const room = roomId ? knockoutRooms.get(roomId) : undefined;
+      if (!room) {
+        reply({ ok: false, error: "Room not found" });
+        return;
+      }
+      if (room.players.p2?.socketId) {
+        reply({ ok: false, error: "Room is full" });
+        return;
+      }
+
+      const playerName = payload.playerName?.trim().slice(0, 18) || "Player 2";
+      room.players.p2 = { id: "p2", name: playerName, socketId: socket.id };
+      room.status = "active";
+      room.game = createInitialKnockoutState(room.players.p1?.name || "Player 1", playerName);
+      socketToKnockoutRoom.set(socket.id, { roomId: room.id, playerId: "p2" });
+      socket.join(room.id);
+      reply({ ok: true, room: publicKnockoutRoom(room), playerId: "p2" });
+      emitKnockoutRoom(room);
+    },
+  );
+
+  socket.on("number-knockout-roll-request", (payload: { roomId?: string }, reply?: (response: { ok: boolean; error?: string }) => void) => {
+    const roomId = payload.roomId?.trim().toUpperCase();
+    const room = roomId ? knockoutRooms.get(roomId) : undefined;
+    const player = socketToKnockoutRoom.get(socket.id);
+    if (!room || !player || player.roomId !== room.id) {
+      reply?.({ ok: false, error: "Room not found" });
+      return;
+    }
+    if (room.status !== "active" || room.game.status === "finished") {
+      reply?.({ ok: false, error: "Game is not active" });
+      return;
+    }
+    if (room.game.currentPlayer !== player.playerId) {
+      reply?.({ ok: false, error: "Not your turn" });
+      return;
+    }
+    if (room.pendingRollPlayer) {
+      reply?.({ ok: false, error: "Roll already in progress" });
+      return;
+    }
+
+    room.pendingRollPlayer = player.playerId;
+    room.game = {
+      ...room.game,
+      lastRoll: undefined,
+      lastHit: undefined,
+      message: `${player.playerId === "p1" ? room.game.player1Name : room.game.player2Name} is rolling`,
+    };
+    io.to(room.id).emit("number-knockout-roll-start", { playerId: player.playerId });
+    emitKnockoutRoom(room);
+
+    room.pendingRollTimer = setTimeout(() => {
+      const activeRoom = knockoutRooms.get(room.id);
+      if (!activeRoom || activeRoom.pendingRollPlayer !== player.playerId) return;
+      const roll = Math.floor(Math.random() * 6) + 1;
+      applyKnockoutRoll(activeRoom, player.playerId, roll);
+      activeRoom.pendingRollPlayer = undefined;
+      activeRoom.pendingRollTimer = undefined;
+      io.to(activeRoom.id).emit("number-knockout-roll-result", {
+        playerId: player.playerId,
+        roll,
+        room: publicKnockoutRoom(activeRoom),
+      });
+      emitKnockoutRoom(activeRoom);
+    }, 920);
+
+    reply?.({ ok: true });
+  });
+
+  socket.on("restart-number-knockout-room", (payload: { roomId?: string }, reply?: (response: { ok: boolean; error?: string }) => void) => {
+    const roomId = payload.roomId?.trim().toUpperCase();
+    const room = roomId ? knockoutRooms.get(roomId) : undefined;
+    if (!room) {
+      reply?.({ ok: false, error: "Room not found" });
+      return;
+    }
+    if (room.pendingRollTimer) {
+      clearTimeout(room.pendingRollTimer);
+    }
+    room.status = room.players.p2?.socketId ? "active" : "waiting";
+    room.pendingRollPlayer = undefined;
+    room.pendingRollTimer = undefined;
+    room.game = createInitialKnockoutState(room.players.p1?.name || "Player 1", room.players.p2?.name || "Waiting...");
+    emitKnockoutRoom(room);
+    reply?.({ ok: true });
+  });
+
   socket.on("disconnect", () => {
     const player = socketToRoom.get(socket.id);
     if (player) {
@@ -757,6 +970,25 @@ io.on("connection", (socket) => {
           tugRoom.pendingRollPlayer = undefined;
         }
         emitTugRoom(tugRoom);
+      }
+    }
+
+    const knockoutPlayer = socketToKnockoutRoom.get(socket.id);
+    if (knockoutPlayer) {
+      const knockoutRoom = knockoutRooms.get(knockoutPlayer.roomId);
+      socketToKnockoutRoom.delete(socket.id);
+      if (knockoutRoom) {
+        const knockoutSlot = knockoutRoom.players[knockoutPlayer.playerId];
+        if (knockoutSlot) {
+          knockoutSlot.socketId = undefined;
+        }
+        knockoutRoom.status = "waiting";
+        if (knockoutRoom.pendingRollTimer) {
+          clearTimeout(knockoutRoom.pendingRollTimer);
+          knockoutRoom.pendingRollTimer = undefined;
+          knockoutRoom.pendingRollPlayer = undefined;
+        }
+        emitKnockoutRoom(knockoutRoom);
       }
     }
   });
