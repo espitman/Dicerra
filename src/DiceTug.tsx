@@ -1,8 +1,8 @@
-import { OrbitControls, Text } from "@react-three/drei";
+import { OrbitControls, Text, useGLTF } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { ArrowLeft, Dices, Play, RefreshCcw, Sparkles, UserRound } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Group, Vector3 } from "three";
+import { Group, Mesh, MeshStandardMaterial, Vector3 } from "three";
 
 type PlayerId = "p1" | "p2";
 
@@ -460,10 +460,16 @@ function TugBoard3D({
       </mesh>
 
       {cells.map((cell) => (
-        <TugCell key={cell} cell={cell} isLandTarget={cell === landPosition} landSeq={landSeq} />
+        <TugCell
+          key={cell}
+          cell={cell}
+          isLandTarget={cell === landPosition}
+          landSeq={landSeq}
+          activePlayer={activePlayer}
+        />
       ))}
 
-      {activePlayer && <TugDirectionArrow direction={activePlayer === "p1" ? -1 : 1} />}
+      {activePlayer && <TugDirectionArrow activeDirection={activePlayer === "p1" ? -1 : 1} />}
       <TugFinishFlag position={-finishDistance} tone="warm" />
       <TugFinishFlag position={finishDistance} tone="cool" />
       <TugToken position={position} moveSeq={moveSeq} shouldWiggle={activePlayer !== undefined} />
@@ -473,9 +479,20 @@ function TugBoard3D({
   );
 }
 
-function TugCell({ cell, isLandTarget, landSeq }: { cell: number; isLandTarget: boolean; landSeq: number }) {
+function TugCell({
+  cell,
+  isLandTarget,
+  landSeq,
+  activePlayer,
+}: {
+  cell: number;
+  isLandTarget: boolean;
+  landSeq: number;
+  activePlayer?: PlayerId;
+}) {
   const isStart = cell === 0;
   const isFinish = Math.abs(cell) === finishDistance;
+  const isActiveSide = activePlayer === "p1" ? cell < 0 : activePlayer === "p2" ? cell > 0 : false;
   const color = isStart ? "#f7c948" : isFinish ? "#2dff8a" : cell < 0 ? "#8a6f28" : "#326b86";
 
   return (
@@ -485,8 +502,8 @@ function TugCell({ cell, isLandTarget, landSeq }: { cell: number; isLandTarget: 
         <boxGeometry args={[0.66, isFinish ? 0.36 : isStart ? 0.32 : 0.24, 0.72]} />
         <meshStandardMaterial
           color={isLandTarget ? "#237a4a" : color}
-          emissive={isLandTarget ? "#2dff8a" : "#000000"}
-          emissiveIntensity={isLandTarget ? 0.62 : 0}
+          emissive={isLandTarget ? "#2dff8a" : isActiveSide ? color : "#000000"}
+          emissiveIntensity={isLandTarget ? 0.62 : isActiveSide ? 0.18 : 0}
           roughness={0.48}
           metalness={0.12}
         />
@@ -529,41 +546,66 @@ function TugTileGlow() {
   );
 }
 
-function TugDirectionArrow({ direction }: { direction: -1 | 1 }) {
-  const groupRef = useRef<Group>(null);
+function TugDirectionArrow({ activeDirection }: { activeDirection: -1 | 1 }) {
+  const { scene } = useGLTF("/models/arrow.glb");
+  const arrowScene = useMemo(() => {
+    const clone = scene.clone();
 
-  useFrame(({ clock }) => {
-    if (!groupRef.current) return;
-    const glow = 0.45 + (Math.sin(clock.elapsedTime * 3.2) + 1) * 0.24;
-    groupRef.current.children.forEach((child) => {
-      const mesh = child as { material?: { opacity?: number } };
-      if (mesh.material) mesh.material.opacity = glow;
+    clone.traverse((object) => {
+      const mesh = object as Mesh;
+      if (!mesh.isMesh) return;
+      const isLeftArrow = mesh.name.includes("left_real_extruded_arrow_geometry");
+      const isRightArrow = mesh.name.includes("right_real_extruded_arrow_geometry");
+      const isLeftPanel = mesh.name.includes("left_recessed_panel");
+      const isRightPanel = mesh.name.includes("right_recessed_panel");
+      const isLeftActive = activeDirection === -1;
+      const isRightActive = activeDirection === 1;
+      const isActiveArrow = (isLeftArrow && isLeftActive) || (isRightArrow && isRightActive);
+      const isInactiveArrow = (isLeftArrow && !isLeftActive) || (isRightArrow && !isRightActive);
+      const isActivePanel = (isLeftPanel && isLeftActive) || (isRightPanel && isRightActive);
+
+      const materials = (Array.isArray(mesh.material) ? mesh.material : [mesh.material]).map((material) => {
+        const next = material.clone();
+        next.transparent = isInactiveArrow;
+        next.opacity = isInactiveArrow ? 0.22 : 1;
+        next.depthWrite = true;
+
+        if (next instanceof MeshStandardMaterial) {
+          if (isActiveArrow) {
+            next.color.set("#2dff8a");
+            next.emissive.set("#2dff8a");
+            next.emissiveIntensity = 0.95;
+          } else if (isInactiveArrow) {
+            next.color.set("#3a2d2d");
+            next.emissive.set("#000000");
+            next.emissiveIntensity = 0;
+          } else if (isActivePanel) {
+            next.emissive.set("#45120f");
+            next.emissiveIntensity = 0.42;
+          } else {
+            next.emissive.set("#000000");
+            next.emissiveIntensity = 0;
+          }
+        }
+
+        return next;
+      });
+
+      mesh.material = Array.isArray(mesh.material) ? materials : materials[0];
     });
-    groupRef.current.position.x = Math.sin(clock.elapsedTime * 2.1) * 0.08 * direction;
-  });
+
+    return clone;
+  }, [activeDirection, scene]);
 
   return (
-    <group ref={groupRef} position={[0, 0.52, -0.58]}>
-      <mesh position={[direction * -0.18, 0, 0]}>
-        <boxGeometry args={[0.72, 0.018, 0.055]} />
-        <meshBasicMaterial color="#ff3b30" transparent opacity={0.72} />
-      </mesh>
-      <mesh position={[direction * 0.24, 0, 0.11]} rotation={[0, direction * 0.72, 0]}>
-        <boxGeometry args={[0.3, 0.018, 0.055]} />
-        <meshBasicMaterial color="#ff6b5f" transparent opacity={0.82} />
-      </mesh>
-      <mesh position={[direction * 0.24, 0, -0.11]} rotation={[0, direction * -0.72, 0]}>
-        <boxGeometry args={[0.3, 0.018, 0.055]} />
-        <meshBasicMaterial color="#ff6b5f" transparent opacity={0.82} />
-      </mesh>
-      <mesh position={[direction * -0.18, 0.002, 0]}>
-        <boxGeometry args={[0.86, 0.008, 0.12]} />
-        <meshBasicMaterial color="#ff3b30" transparent opacity={0.18} />
-      </mesh>
-      <pointLight color="#ff3b30" intensity={0.78} distance={2.4} />
+    <group position={[0, -0.055, -0.92]} scale={0.68}>
+      <primitive object={arrowScene} />
+      <pointLight position={[activeDirection * 0.5, 1.0, 0.12]} color="#2dff8a" intensity={0.42} distance={1.25} />
     </group>
   );
 }
+
+useGLTF.preload("/models/arrow.glb");
 
 function TugFinishFlag({ position, tone }: { position: number; tone: "warm" | "cool" }) {
   const color = tone === "warm" ? "#f7c948" : "#9bd7ff";
