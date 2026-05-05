@@ -1228,7 +1228,7 @@ h2 {
 }
 
 .tug-roll .trail-stats span:first-child::before {
-  content: "pull ";
+  content: "finish ";
   color: #9aa4b2;
   font-size: 0.7rem;
 }
